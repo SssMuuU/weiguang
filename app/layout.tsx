@@ -16,6 +16,16 @@ export const metadata: Metadata = {
   metadataBase: new URL('https://weiguang-plan-habits.workspace-192140.chatgpt.site'),
   title: '微光｜计划、习惯与待办',
   description: '把想做的事，变成每天真的做到。',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: '微光',
+    statusBarStyle: 'black-translucent',
+  },
+  icons: {
+    icon: '/icon-1024.png',
+    apple: '/icon-1024.png',
+  },
   openGraph: {
     title: '微光｜计划、习惯与待办',
     description: '把想做的事，变成每天真的做到。',
@@ -27,6 +37,12 @@ export const metadata: Metadata = {
     description: '把想做的事，变成每天真的做到。',
     images: ['/og.png'],
   },
+};
+
+export const viewport = {
+  themeColor: '#7465eb',
+  colorScheme: 'light',
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
