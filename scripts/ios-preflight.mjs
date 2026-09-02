@@ -41,6 +41,11 @@ function verifyProjectFiles() {
   requireText(appPage, '从空白开始', '首次启动引导');
   requireText(appPage, 'createEmptySnapshot', '空白初始数据');
   requireText(appPage, 'CACHE_ASSETS', 'PWA 首屏资源缓存');
+  requireText(appPage, 'handleDialogKey', '弹窗键盘焦点管理');
+  requireText(appPage, '打开微光信息', '顶部信息入口');
+
+  const appStyles = read('app/globals.css');
+  requireText(appStyles, 'button:focus-visible', '键盘焦点样式');
 
   const serviceWorker = read('public/sw.js');
   requireText(serviceWorker, "const CACHE = 'weiguang-v5'", 'PWA 缓存版本');
