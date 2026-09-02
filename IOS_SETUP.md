@@ -10,11 +10,13 @@
 - `mobile/` 是移动端静态入口，复用网页版 React 页面与毛玻璃样式。
 - `ios/` 是已生成的 Xcode 工程，使用 Swift Package Manager 管理插件。
 - 数据保存在 iPhone 本机；习惯提醒为系统本地通知，不依赖服务器。
+- App 无需注册账号；网页版也改为本机保存，旧版无身份 D1 接口已停用，避免共用快照被读取或覆盖。
 - 应用从后台重新激活时会自动刷新当天日期；启动、恢复备份或重置数据后会在已有授权下校准提醒，不会在启动时主动索要通知权限。
 - 完成待办、习惯目标和里程碑时提供系统触感反馈。
 - JSON 备份使用系统分享面板，可保存到“文件”、AirDrop 或其他应用。
 - 计划支持截止日期、逾期提示、归档和恢复；旧版数据会自动迁移到 v4。
 - 已包含 `PrivacyInfo.xcprivacy`，声明 Preferences 的 UserDefaults 与备份文件时间戳使用原因；未声明追踪。
+- 应用内“数据与安装”已提供隐私与版本说明；`PRIVACY_POLICY.md` 和 `APP_STORE_METADATA.md` 保存隐私政策与商店资料草案。
 
 ## 首次在 Mac 上运行
 
@@ -24,7 +26,7 @@
 2. `npm run ios:preflight`
 3. `npm run ios:open`
 
-预检会重新生成移动端资源，核对版本号、Bundle Identifier、原生插件、图标、启动页和隐私清单；在 macOS 上还会执行一次无需签名的模拟器编译。Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己的 Apple Developer Team。确认 Bundle Identifier 可用，然后选择模拟器或已配对的 iPhone，点击运行。
+预检会重新生成移动端资源，核对版本号、Bundle Identifier、原生插件、图标、启动页、隐私清单、应用内隐私文案和 App Store 发布资料；在 macOS 上还会执行一次无需签名的模拟器编译。Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己的 Apple Developer Team。确认 Bundle Identifier 可用，然后选择模拟器或已配对的 iPhone，点击运行。
 
 每次修改 React 页面后，只需重新执行 `npm run ios:sync`，再回到 Xcode 运行。不要直接编辑 `ios/App/App/public`，它会在同步时由 `mobile-dist` 覆盖。
 
@@ -54,6 +56,6 @@
 4. 在 Organizer 中运行 Validate App；无阻塞问题后选择 Distribute App → App Store Connect → Upload。
 5. 等待构建处理完成，补齐测试说明并添加内部测试员。
 
-正式外部测试前还需准备 App Store 隐私信息、支持链接、隐私政策和商店截图。当前版本不创建账号、不采集分析数据、不进行用户追踪，产品数据仅在设备本地和用户主动导出的备份中保存；网页版私有云数据不会自动进入 iOS App。
+正式外部测试前还需把 `APP_STORE_METADATA.md` 中的支持邮箱、支持网址和隐私政策网址补齐，并准备商店截图。当前版本不创建账号、不采集分析数据、不进行用户追踪，产品数据仅在设备本地和用户主动导出的备份中保存。
 
 参考：[Capacitor 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)、[iOS 工程说明](https://capacitorjs.com/docs/ios)、[应用生命周期](https://capacitorjs.com/docs/apis/app)、[本地通知](https://capacitorjs.com/docs/apis/local-notifications)、[触感反馈](https://capacitorjs.com/docs/apis/haptics)。

@@ -32,6 +32,18 @@ function requireFile(relativePath) {
 }
 
 function verifyProjectFiles() {
+  const appPage = read('app/page.tsx');
+  requireText(appPage, '无需注册账号；计划、习惯、待办和记录仅保存在当前设备。', '应用内隐私说明');
+  requireText(appPage, '微光 0.1.0（1）', '应用内版本信息');
+
+  const privacyPolicy = read('PRIVACY_POLICY.md');
+  requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');
+  requireText(privacyPolicy, '不会把这些内容上传到微光服务器', '隐私说明');
+
+  const storeMetadata = read('APP_STORE_METADATA.md');
+  requireText(storeMetadata, 'com.weiguang.habits', 'App Store 发布资料');
+  requireText(storeMetadata, '版本：`0.1.0`', 'App Store 发布资料');
+
   const project = read('ios/App/App.xcodeproj/project.pbxproj');
   requireText(project, 'MARKETING_VERSION = 0.1.0;', 'Xcode 版本设置');
   requireText(project, 'CURRENT_PROJECT_VERSION = 1;', 'Xcode 构建号');

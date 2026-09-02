@@ -13,7 +13,7 @@ import { Share } from '@capacitor/share';
 type View = 'today' | 'plans' | 'habits' | 'review';
 type AddKind = 'task' | 'habit' | 'plan';
 type ReviewRange = 'week' | 'month';
-type SyncState = 'loading' | 'syncing' | 'synced' | 'offline' | 'device';
+type SyncState = 'loading' | 'device';
 type Milestone = { id: number; title: string; done: boolean };
 type Task = { id: number; title: string; time: string; tag: string; date: string; planId?: number };
 type Habit = { id: number; icon: string; title: string; target: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string };
@@ -192,17 +192,8 @@ export default function Home() {
       const local = await readLocal(today);
       setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
       setSnapshot(local); setReady(true);
-      if (isNative) { setSyncState('device'); void syncAllHabitReminders(local.habits); return; }
-      try {
-        const response = await fetch('/api/state', { cache: 'no-store' });
-        if (!response.ok) throw new Error('Remote state unavailable');
-        const data = await response.json() as { snapshot: unknown };
-        const rawRemote = parseSnapshot(data.snapshot);
-        const remote = rawRemote ? normalizeSnapshot(rawRemote, today) : null;
-        if (remote && Date.parse(remote.updatedAt) >= Date.parse(local.updatedAt)) setSnapshot(remote);
-        else await fetch('/api/state', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(local) });
-        setSyncState('synced');
-      } catch { setSyncState('offline'); }
+      setSyncState('device');
+      if (isNative) void syncAllHabitReminders(local.habits);
     })();
     if (isNative) document.body.classList.add('native-app');
     else if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
@@ -229,17 +220,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready) return;
-    if (isNative) {
-      void Preferences.set({ key: 'weiguang.snapshot.v4', value: JSON.stringify(snapshot) });
-      return;
-    }
-    window.localStorage.setItem('weiguang.snapshot.v4', JSON.stringify(snapshot));
-    const timer = window.setTimeout(async () => {
-      setSyncState('syncing');
-      try { const response = await fetch('/api/state', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(snapshot) }); if (!response.ok) throw new Error('Sync failed'); setSyncState('synced'); }
-      catch { setSyncState('offline'); }
-    }, 650);
-    return () => window.clearTimeout(timer);
+    if (isNative) void Preferences.set({ key: 'weiguang.snapshot.v4', value: JSON.stringify(snapshot) });
+    else window.localStorage.setItem('weiguang.snapshot.v4', JSON.stringify(snapshot));
   }, [snapshot, ready, isNative]);
 
   useEffect(() => {
@@ -294,7 +276,7 @@ export default function Home() {
   const isToday = selectedDate === todayKey;
   const selectedLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(fromDateKey(selectedDate));
   const header = copy[view];
-  const syncCopy = { loading: '正在连接', syncing: '正在同步', synced: '已同步', offline: '本机模式', device: '已保存在此 iPhone' }[syncState];
+  const syncCopy = syncState === 'loading' ? '正在读取' : isNative ? '已保存在此 iPhone' : '已保存在本机';
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
 
   function updateSnapshot(change: (current: AppSnapshot) => AppSnapshot) { setSnapshot((current) => stamp(change(current))); }
@@ -460,7 +442,7 @@ export default function Home() {
 
       {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title || '未命名习惯'}</h2><div className="editor-row habit-identity"><label>名称<input autoFocus value={habitEditor.title} onChange={(event) => setHabitEditor({ ...habitEditor, title: event.target.value })} /></label><label>图标字<input maxLength={2} value={habitEditor.icon} onChange={(event) => setHabitEditor({ ...habitEditor, icon: event.target.value })} /></label></div><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button type="button" key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row habit-target-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="1" value={habitEditor.target} onChange={(event) => setHabitEditor({ ...habitEditor, target: Math.max(1, Number(event.target.value) || 1) })} /></label><label>单位<input value={habitEditor.unit} onChange={(event) => setHabitEditor({ ...habitEditor, unit: event.target.value })} placeholder="次" /></label></div><button type="button" className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={() => void saveHabitSettings()}>保存设置</button><button type="button" className="delete-habit-button" onClick={() => void deleteHabit()}>删除习惯及历史记录</button></section></div>}
 
-      {dataModal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}><section className="modal data-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="data-title"><button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button><span className="section-label">数据与安装</span><h2 id="data-title">你的微光，由你保管</h2><div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>{syncState === 'device' ? '数据保存在这台 iPhone；提醒由系统本地执行。' : syncState === 'offline' ? '数据已安全保存在这台设备，联网后会自动同步。' : '数据同时保存在设备与私有云端。'}</span></div></div><div className="data-actions"><button onClick={() => void exportData()}><b>导</b><span><strong>导出备份</strong><small>{isNative ? '通过系统分享保存 JSON' : '下载完整 JSON 数据'}</small></span></button><label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>{installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}</div><p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : '在 iPhone Safari 中打开后，点“分享”→“添加到主屏幕”，即可安装当前版本。'}</p><button className="reset-button" onClick={resetData}>清空并恢复示例数据</button></section></div>}
+      {dataModal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}><section className="modal data-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="data-title"><button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button><span className="section-label">数据与安装</span><h2 id="data-title">你的微光，由你保管</h2><div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>无需注册账号；计划、习惯、待办和记录仅保存在当前设备。</span></div></div><div className="data-actions"><button onClick={() => void exportData()}><b>导</b><span><strong>导出备份</strong><small>{isNative ? '通过系统分享保存 JSON' : '下载完整 JSON 数据'}</small></span></button><label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>{installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}</div><p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : '在 iPhone Safari 中打开后，点“分享”→“添加到主屏幕”，即可安装当前版本。'}</p><details className="privacy-details"><summary><span><strong>隐私与版本</strong><small>无账号 · 无广告 · 不追踪</small></span><b aria-hidden="true">⌄</b></summary><div><p><strong>{isNative ? 'iPhone App' : '浏览器版'}</strong>不会上传你的计划内容，也不包含广告或分析 SDK。</p><p>本地通知由 iOS 在设备上执行；只有你主动导出备份时，系统才会把所选文件交给你指定的位置或应用。</p><small>微光 0.1.0（1）</small></div></details><button className="reset-button" onClick={resetData}>清空并恢复示例数据</button></section></div>}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
