@@ -20,6 +20,7 @@ type Habit = { id: number; icon: string; title: string; target: number; unit: st
 type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[]; deadline: string; archived: boolean };
 type DailyRecord = { taskDone: number[]; habits: Record<string, number> };
 type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
+type LocalReadResult = { snapshot: AppSnapshot; firstRun: boolean };
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 const everyDay = [1, 2, 3, 4, 5, 6, 0];
@@ -72,6 +73,10 @@ function createSeedSnapshot(today: string): AppSnapshot {
   return { version: 4, tasks, habits: initialHabits, plans: initialPlans, records, updatedAt: new Date().toISOString() };
 }
 
+function createEmptySnapshot(today: string): AppSnapshot {
+  return { version: 4, tasks: [], habits: [], plans: [], records: { [today]: emptyRecord() }, updatedAt: new Date().toISOString() };
+}
+
 function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnapshot {
   const records: Record<string, DailyRecord> = {};
   Object.entries(snapshot.records || {}).forEach(([key, record]) => { records[key === 'today' ? today : key] = { taskDone: Array.isArray(record?.taskDone) ? record.taskDone : [], habits: record?.habits && typeof record.habits === 'object' ? record.habits : {} }; });
@@ -92,15 +97,15 @@ function parseSnapshot(value: unknown): AppSnapshot | null {
   return { version: 4, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
 }
 
-async function readLocal(today: string): Promise<AppSnapshot> {
+async function readLocal(today: string): Promise<LocalReadResult> {
   try {
     const stored = Capacitor.isNativePlatform()
       ? (await Preferences.get({ key: 'weiguang.snapshot.v4' })).value || (await Preferences.get({ key: 'weiguang.snapshot.v3' })).value
       : window.localStorage.getItem('weiguang.snapshot.v4') || window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2');
     const current = parseSnapshot(JSON.parse(stored || 'null'));
-    if (current) return normalizeSnapshot(current, today);
-  } catch { /* Invalid local cache falls back to seed data. */ }
-  return createSeedSnapshot(today);
+    if (current) return { snapshot: normalizeSnapshot(current, today), firstRun: false };
+  } catch { /* Invalid local cache enters the safe first-run flow. */ }
+  return { snapshot: createEmptySnapshot(today), firstRun: true };
 }
 
 function nativeNotificationId(habitId: number, weekday: number) {
@@ -160,10 +165,11 @@ function nativeSuccess() {
 
 export default function Home() {
   const [view, setView] = useState<View>('today');
-  const [snapshot, setSnapshot] = useState<AppSnapshot>(() => createSeedSnapshot('today'));
+  const [snapshot, setSnapshot] = useState<AppSnapshot>(() => createEmptySnapshot('today'));
   const [todayKey, setTodayKey] = useState('today');
   const [selectedDate, setSelectedDate] = useState('today');
   const [ready, setReady] = useState(false);
+  const [welcome, setWelcome] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>('loading');
   const [greeting, setGreeting] = useState('早上好');
   const [modal, setModal] = useState(false);
@@ -193,9 +199,9 @@ export default function Home() {
     void (async () => {
       const local = await readLocal(today);
       setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
-      setSnapshot(local); setReady(true);
+      setSnapshot(local.snapshot); setWelcome(local.firstRun); setReady(true);
       setSyncState('device');
-      if (isNative) void syncAllHabitReminders(local.habits);
+      if (isNative) void syncAllHabitReminders(local.snapshot.habits);
     })();
     if (isNative) document.body.classList.add('native-app');
     else if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
@@ -221,10 +227,10 @@ export default function Home() {
   }, [isNative]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || welcome) return;
     if (isNative) void Preferences.set({ key: 'weiguang.snapshot.v4', value: JSON.stringify(snapshot) });
     else window.localStorage.setItem('weiguang.snapshot.v4', JSON.stringify(snapshot));
-  }, [snapshot, ready, isNative]);
+  }, [snapshot, ready, isNative, welcome]);
 
   useEffect(() => {
     if (!modal && !dataModal && selectedPlanId === null && !taskEditor && !habitEditor) return;
@@ -415,6 +421,8 @@ export default function Home() {
   async function importData(file: File | undefined) { if (!file) return; try { const imported = parseSnapshot(JSON.parse(await file.text())); if (!imported) throw new Error('Invalid backup'); const restored = stamp(normalizeSnapshot(imported, todayKey)); setSnapshot(restored); if (isNative) void syncAllHabitReminders(restored.habits); setDataModal(false); setToast('备份数据已恢复'); } catch { setToast('无法读取这个备份文件'); } }
   function resetData() { if (!window.confirm('确定清空当前数据并恢复示例内容吗？建议先导出备份。')) return; const seed = createSeedSnapshot(todayKey); setSnapshot(seed); if (isNative) void syncAllHabitReminders(seed.habits); setSelectedDate(todayKey); setDataModal(false); setToast('数据已恢复为初始状态'); }
   async function installApp() { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); }
+  function startBlank() { setWelcome(false); nativeImpact(ImpactStyle.Medium); setToast('欢迎来到微光，从一件小事开始吧'); }
+  function loadDemo() { const seed = createSeedSnapshot(todayKey); setSnapshot(seed); setWelcome(false); if (isNative) void syncAllHabitReminders(seed.habits); nativeImpact(ImpactStyle.Medium); setToast('示例内容已载入，可以随时修改'); }
 
   return (
     <main className="app-shell">
@@ -436,6 +444,8 @@ export default function Home() {
       <aside className="right-rail"><div className="rail-head"><div><span className="section-label">{view === 'today' && !isToday ? selectedLabel : '保持节奏'}</span><h2>{view === 'today' && !isToday ? '当日习惯' : '今日习惯'}</h2></div><button onClick={() => openAdd('habit')} aria-label="添加习惯">＋</button></div><div className="habit-stack">{habits.filter((habit) => !habit.paused).slice(0, 4).map((habit) => { const key = view === 'today' ? selectedDate : todayKey; const scheduled = isScheduled(habit, key); const value = recordFor(key).habits[String(habit.id)] || 0; const percent = scheduled ? Math.min(100, Math.round((value / habit.target) * 100)) : 0; const locked = key > todayKey; return <article className={`habit-card glass-panel ${scheduled ? '' : 'resting'}`} key={habit.id}><button className={`habit-icon ${habit.color}`} onClick={() => setHabitEditor({ ...habit })}>{habit.icon}</button><div className="habit-info"><strong>{habit.title}</strong><span>{scheduled ? locked ? '未来日期暂不能记录' : `${value} / ${habit.target} ${habit.unit}` : '今天休息'}</span></div><button className="habit-plus" onClick={() => changeHabitProgress(habit.id, percent === 100 ? -habit.target : 1, key)} disabled={!scheduled || locked} aria-label={percent === 100 ? `撤销 ${habit.title}` : `记录一次 ${habit.title}`}>{!scheduled ? '·' : percent === 100 ? '↶' : '+'}</button><div className="mini-progress"><i style={{ width: `${percent}%` }} /></div></article>; })}</div><article className="reflection glass-panel"><span>今日一句</span><blockquote>“不需要很厉害才开始，开始了才会慢慢变厉害。”</blockquote><div className="week-dots">{weekDays.map((key) => <div key={key}><i className={completionForDate(key) >= 60 ? 'filled' : ''} /><small>{shortWeekday(key)}</small></div>)}</div></article></aside>
 
       <nav className="mobile-nav glass-panel" aria-label="移动端导航">{navItems.slice(0, 2).map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><span>{item.short}</span>{item.label}</button>)}<button className="mobile-add" onClick={() => openAdd('task')} aria-label="快速添加">＋</button>{navItems.slice(2).map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><span>{item.short}</span>{item.label}</button>)}</nav>
+
+      {welcome && <div className="modal-layer welcome-layer"><section className="modal welcome-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="welcome-title"><div className="welcome-brand"><span className="brand-mark">微</span><span>微光</span></div><span className="section-label">第一次见面</span><h2 id="welcome-title">把每一点行动，慢慢变成生活</h2><p>这里没有必须完成的清单。先写下一件待办、一个想培养的习惯，或一段值得推进的计划。</p><div className="welcome-points"><div><b>今</b><span><strong>从今天开始</strong><small>待办、习惯和计划放在同一个节奏里</small></span></div><div><b>存</b><span><strong>由你保管</strong><small>无需登录，内容只保存在当前设备</small></span></div></div><button className="submit-button" onClick={startBlank}>从空白开始</button><button className="welcome-demo" onClick={loadDemo}>先看看示例</button><small className="welcome-note">之后可在“数据与安装”中导出备份或恢复示例内容</small></section></div>}
 
       {modal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setModal(false)}><section className="modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="add-title"><button className="modal-close" onClick={() => setModal(false)} aria-label="关闭">×</button><span className="section-label">快速记录</span><h2 id="add-title">把想法放进微光</h2><div className="kind-switch">{(['task', 'habit', 'plan'] as AddKind[]).map((kind) => <button key={kind} className={addKind === kind ? 'active' : ''} onClick={() => setAddKind(kind)}>{kind === 'task' ? '待办' : kind === 'habit' ? '习惯' : '计划'}</button>)}</div><form onSubmit={submitAdd}><label>名称<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={addKind === 'task' ? '例如：回复重要邮件' : addKind === 'habit' ? '例如：拉伸 10 分钟' : '例如：完成个人作品集'} /></label>{addKind === 'task' ? <><label>时间（可选）<input type="time" value={detail} onChange={(event) => setDetail(event.target.value)} /></label><label>备注（可选）<textarea value={taskNote} onChange={(event) => setTaskNote(event.target.value)} placeholder="补充地点、准备事项或想法" rows={3} /></label></> : <label>{addKind === 'habit' ? '每日目标次数' : '计划分类'}<input value={detail} onChange={(event) => setDetail(event.target.value)} inputMode={addKind === 'habit' ? 'numeric' : 'text'} placeholder={addKind === 'habit' ? '例如：1' : '例如：个人成长'} /></label>}{addKind === 'plan' && <label>截止日期（可选）<input type="date" min={todayKey === 'today' ? undefined : todayKey} value={planDeadline} onChange={(event) => setPlanDeadline(event.target.value)} /></label>}{addKind === 'task' && activePlans.length > 0 && <label>关联计划（可选）<select value={planChoice} onChange={(event) => setPlanChoice(event.target.value)}><option value="">不关联计划</option>{activePlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</select></label>}<button className="submit-button" type="submit">保存到微光</button></form></section></div>}
 

@@ -38,6 +38,8 @@ function verifyProjectFiles() {
   requireText(appPage, '备注（可选）', '待办备注编辑');
   requireText(appPage, 'nextMilestoneCopy', '计划下一步计算');
   requireText(appPage, '相关完成记录也会一并删除', '待办删除确认');
+  requireText(appPage, '从空白开始', '首次启动引导');
+  requireText(appPage, 'createEmptySnapshot', '空白初始数据');
 
   const privacyPolicy = read('PRIVACY_POLICY.md');
   requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');
