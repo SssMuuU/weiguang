@@ -10,7 +10,8 @@
 - `ios/` 是已生成的 Xcode 工程，使用 Swift Package Manager 管理插件。
 - 数据保存在 iPhone 本机；习惯提醒为系统本地通知，不依赖服务器。
 - 完成待办、习惯目标和里程碑时提供系统触感反馈。
-- 已包含 `PrivacyInfo.xcprivacy`，声明 Preferences 使用的 UserDefaults 原因；未声明追踪。
+- JSON 备份使用系统分享面板，可保存到“文件”、AirDrop 或其他应用。
+- 已包含 `PrivacyInfo.xcprivacy`，声明 Preferences 的 UserDefaults 与备份文件时间戳使用原因；未声明追踪。
 
 ## 首次在 Mac 上运行
 

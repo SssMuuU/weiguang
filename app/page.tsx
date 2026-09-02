@@ -3,9 +3,11 @@
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Preferences } from '@capacitor/preferences';
+import { Share } from '@capacitor/share';
 
 type View = 'today' | 'plans' | 'habits' | 'review';
 type AddKind = 'task' | 'habit' | 'plan';
@@ -305,7 +307,19 @@ export default function Home() {
   async function saveHabitSettings() { if (!habitEditor) return; const savedHabit = { ...habitEditor, days: habitEditor.days.length ? habitEditor.days : everyDay }; try { const remindersReady = await syncHabitReminder(savedHabit); updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) })); setHabitEditor(null); nativeImpact(ImpactStyle.Medium); setToast(remindersReady ? '习惯设置已保存' : '设置已保存，请在系统设置中允许通知'); } catch { setToast('设置已保存，但系统提醒未能更新'); updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) })); setHabitEditor(null); } }
   function habitStreak(habit: Habit) { if (habit.paused) return 0; let streak = 0; for (let offset = 0; offset < 366; offset += 1) { const key = shiftDate(todayKey, -offset); if (!habit.days.includes(fromDateKey(key).getDay())) continue; if ((recordFor(key).habits[String(habit.id)] || 0) < habit.target) break; streak += 1; } return streak; }
 
-  function exportData() { const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `weiguang-backup-${todayKey}.json`; anchor.click(); URL.revokeObjectURL(url); setToast('备份文件已导出'); }
+  async function exportData() {
+    const fileName = `weiguang-backup-${todayKey}.json`;
+    const data = JSON.stringify(snapshot, null, 2);
+    if (isNative) {
+      try {
+        const file = await Filesystem.writeFile({ path: fileName, data, directory: Directory.Cache, encoding: Encoding.UTF8 });
+        await Share.share({ title: '微光数据备份', text: '保存或分享你的微光 JSON 备份。', url: file.uri, dialogTitle: '导出微光备份' });
+        nativeSuccess(); setToast('备份已交给系统分享');
+      } catch { setToast('备份导出未完成，请再试一次'); }
+      return;
+    }
+    const blob = new Blob([data], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName; anchor.click(); URL.revokeObjectURL(url); setToast('备份文件已导出');
+  }
   async function importData(file: File | undefined) { if (!file) return; try { const imported = parseSnapshot(JSON.parse(await file.text())); if (!imported) throw new Error('Invalid backup'); setSnapshot(stamp(normalizeSnapshot(imported, todayKey))); setDataModal(false); setToast('备份数据已恢复'); } catch { setToast('无法读取这个备份文件'); } }
   function resetData() { if (!window.confirm('确定清空当前数据并恢复示例内容吗？建议先导出备份。')) return; setSnapshot(createSeedSnapshot(todayKey)); setSelectedDate(todayKey); setDataModal(false); setToast('数据已恢复为初始状态'); }
   async function installApp() { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); }
@@ -337,7 +351,7 @@ export default function Home() {
 
       {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title}</h2><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="1" value={habitEditor.target} onChange={(event) => setHabitEditor({ ...habitEditor, target: Math.max(1, Number(event.target.value) || 1) })} /></label></div><button className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={saveHabitSettings}>保存设置</button></section></div>}
 
-      {dataModal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}><section className="modal data-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="data-title"><button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button><span className="section-label">数据与安装</span><h2 id="data-title">你的微光，由你保管</h2><div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>{syncState === 'device' ? '数据保存在这台 iPhone；提醒由系统本地执行。' : syncState === 'offline' ? '数据已安全保存在这台设备，联网后会自动同步。' : '数据同时保存在设备与私有云端。'}</span></div></div><div className="data-actions"><button onClick={exportData}><b>导</b><span><strong>导出备份</strong><small>下载完整 JSON 数据</small></span></button><label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>{installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}</div><p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : '在 iPhone Safari 中打开后，点“分享”→“添加到主屏幕”，即可安装当前版本。'}</p><button className="reset-button" onClick={resetData}>清空并恢复示例数据</button></section></div>}
+      {dataModal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}><section className="modal data-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="data-title"><button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button><span className="section-label">数据与安装</span><h2 id="data-title">你的微光，由你保管</h2><div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>{syncState === 'device' ? '数据保存在这台 iPhone；提醒由系统本地执行。' : syncState === 'offline' ? '数据已安全保存在这台设备，联网后会自动同步。' : '数据同时保存在设备与私有云端。'}</span></div></div><div className="data-actions"><button onClick={() => void exportData()}><b>导</b><span><strong>导出备份</strong><small>{isNative ? '通过系统分享保存 JSON' : '下载完整 JSON 数据'}</small></span></button><label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>{installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}</div><p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : '在 iPhone Safari 中打开后，点“分享”→“添加到主屏幕”，即可安装当前版本。'}</p><button className="reset-button" onClick={resetData}>清空并恢复示例数据</button></section></div>}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
