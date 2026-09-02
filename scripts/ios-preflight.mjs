@@ -36,6 +36,8 @@ function verifyProjectFiles() {
   requireText(appPage, '无需注册账号；计划、习惯、待办和记录仅保存在当前设备。', '应用内隐私说明');
   requireText(appPage, '微光 0.1.0（1）', '应用内版本信息');
   requireText(appPage, '备注（可选）', '待办备注编辑');
+  requireText(appPage, 'nextMilestoneCopy', '计划下一步计算');
+  requireText(appPage, '相关完成记录也会一并删除', '待办删除确认');
 
   const privacyPolicy = read('PRIVACY_POLICY.md');
   requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');
