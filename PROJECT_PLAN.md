@@ -91,6 +91,8 @@
 
 当前技术：React + TypeScript + Vinext，使用响应式 CSS 实现桌面端与手机端共用界面。应用可在浏览器运行，并可通过托管链接直接体验。
 
+iOS 测试版已采用 Capacitor 8：`mobile/` 提供静态入口，`mobile-dist/` 是随 App 安装的本地资源，`ios/` 保存 Xcode 工程。iOS 版不加载远程网页，断网也可打开；数据通过 Capacitor Preferences 保存在设备，本地通知负责习惯提醒，Haptics 提供完成反馈。当前私有 D1 接口仍只服务网页版，待 M4 增加账号身份后再开放跨端同步。
+
 iOS 演进建议：
 
 1. 浏览器 MVP：验证信息结构、主要交互和视觉风格。
@@ -143,10 +145,12 @@ iOS 演进建议：
 
 - [x] 离线运行与安装清单
 - [x] App 图标和系统主题适配
-- [ ] iOS 启动页
-- [ ] Capacitor iOS 工程
-- [ ] 本地通知与触感反馈
+- [x] iOS 启动页
+- [x] Capacitor iOS 工程
+- [x] 本地通知与触感反馈（代码与资源已完成，待真机验收）
 - [ ] TestFlight 内测
+
+iOS 交接说明见 `IOS_SETUP.md`。当前开发机为 Windows，已完成可在此环境验证的静态构建、原生工程生成、插件同步和资源生成；Xcode 编译、签名、通知真机授权与 TestFlight 上传必须在 Mac 上完成。
 
 ### M4：账号与云同步
 

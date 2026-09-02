@@ -8,17 +8,29 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build",
+    "mobile:dev": "vite --config vite.mobile.config.ts",
+    "mobile:build": "vite build --config vite.mobile.config.ts",
+    "ios:add": "npm run mobile:build && cap add ios",
+    "ios:sync": "npm run mobile:build && cap sync ios",
+    "ios:open": "cap open ios",
     "start": "vinext start",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern mobile-dist --ignore-pattern ios/App/App/public --ignore-pattern .npm-cache",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/ios": "^8.5.1",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/preferences": "^8.0.1",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.1",
     "@cloudflare/vite-plugin": "1.37.1",
     "@cloudflare/workers-types": "4.20260515.1",
     "@openai/sites-vite-plugin": "^0.1.0 || ^0.2.0",

@@ -2,11 +2,15 @@
 
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Preferences } from '@capacitor/preferences';
 
 type View = 'today' | 'plans' | 'habits' | 'review';
 type AddKind = 'task' | 'habit' | 'plan';
 type ReviewRange = 'week' | 'month';
-type SyncState = 'loading' | 'syncing' | 'synced' | 'offline';
+type SyncState = 'loading' | 'syncing' | 'synced' | 'offline' | 'device';
 type Milestone = { id: number; title: string; done: boolean };
 type Task = { id: number; title: string; time: string; tag: string; date: string; planId?: number };
 type Habit = { id: number; icon: string; title: string; target: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string };
@@ -83,12 +87,56 @@ function parseSnapshot(value: unknown): AppSnapshot | null {
   return { version: 3, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
 }
 
-function readLocal(today: string): AppSnapshot {
+async function readLocal(today: string): Promise<AppSnapshot> {
   try {
-    const current = parseSnapshot(JSON.parse(window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2') || 'null'));
+    const stored = Capacitor.isNativePlatform()
+      ? (await Preferences.get({ key: 'weiguang.snapshot.v3' })).value
+      : window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2');
+    const current = parseSnapshot(JSON.parse(stored || 'null'));
     if (current) return normalizeSnapshot(current, today);
   } catch { /* Invalid local cache falls back to seed data. */ }
   return createSeedSnapshot(today);
+}
+
+function nativeNotificationId(habitId: number, weekday: number) {
+  return 100000 + ((Math.abs(habitId) % 100000) * 7 + weekday) % 900000;
+}
+
+function nextReminderDate(weekday: number, hour: number, minute: number) {
+  const next = new Date();
+  next.setHours(hour, minute, 0, 0);
+  let offset = (weekday - next.getDay() + 7) % 7;
+  if (offset === 0 && next.getTime() <= Date.now()) offset = 7;
+  next.setDate(next.getDate() + offset);
+  return next;
+}
+
+async function syncHabitReminder(habit: Habit) {
+  if (!Capacitor.isNativePlatform()) return true;
+  const notificationIds = everyDay.map((weekday) => ({ id: nativeNotificationId(habit.id, weekday) }));
+  await LocalNotifications.cancel({ notifications: notificationIds });
+  if (habit.paused || !habit.reminder || habit.days.length === 0) return true;
+  const permission = await LocalNotifications.requestPermissions();
+  if (permission.display !== 'granted') return false;
+  const [hour, minute] = habit.reminder.split(':').map(Number);
+  await LocalNotifications.schedule({
+    notifications: habit.days.map((weekday) => ({
+      id: nativeNotificationId(habit.id, weekday),
+      title: `微光 · ${habit.title}`,
+      body: `到了记录“${habit.title}”的时间。慢慢来，也是在前进。`,
+      schedule: { at: nextReminderDate(weekday, hour, minute), repeats: true, every: 'week' },
+      extra: { habitId: habit.id },
+    })),
+  });
+  return true;
+}
+
+function nativeImpact(style = ImpactStyle.Light) {
+  if (Capacitor.isNativePlatform()) void Haptics.impact({ style });
+}
+
+function nativeSuccess() {
+  if (Capacitor.isNativePlatform()) void Haptics.notification({ type: NotificationType.Success });
 }
 
 export default function Home() {
@@ -111,13 +159,16 @@ export default function Home() {
   const [reviewRange, setReviewRange] = useState<ReviewRange>('week');
   const [toast, setToast] = useState('');
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const isNative = Capacitor.isNativePlatform();
 
   useEffect(() => {
     const now = new Date();
     const today = toDateKey(now);
-    setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
-    const local = readLocal(today); setSnapshot(local); setReady(true);
     void (async () => {
+      const local = await readLocal(today);
+      setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
+      setSnapshot(local); setReady(true);
+      if (isNative) { setSyncState('device'); return; }
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
         if (!response.ok) throw new Error('Remote state unavailable');
@@ -129,14 +180,19 @@ export default function Home() {
         setSyncState('synced');
       } catch { setSyncState('offline'); }
     })();
-    if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
+    if (isNative) document.body.classList.add('native-app');
+    else if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
     const captureInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
     window.addEventListener('beforeinstallprompt', captureInstall);
-    return () => window.removeEventListener('beforeinstallprompt', captureInstall);
-  }, []);
+    return () => { window.removeEventListener('beforeinstallprompt', captureInstall); document.body.classList.remove('native-app'); };
+  }, [isNative]);
 
   useEffect(() => {
     if (!ready) return;
+    if (isNative) {
+      void Preferences.set({ key: 'weiguang.snapshot.v3', value: JSON.stringify(snapshot) });
+      return;
+    }
     window.localStorage.setItem('weiguang.snapshot.v3', JSON.stringify(snapshot));
     const timer = window.setTimeout(async () => {
       setSyncState('syncing');
@@ -144,7 +200,7 @@ export default function Home() {
       catch { setSyncState('offline'); }
     }, 650);
     return () => window.clearTimeout(timer);
-  }, [snapshot, ready]);
+  }, [snapshot, ready, isNative]);
 
   useEffect(() => {
     if (!modal && !dataModal && selectedPlanId === null && !habitEditor) return;
@@ -195,7 +251,7 @@ export default function Home() {
   const isToday = selectedDate === todayKey;
   const selectedLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(fromDateKey(selectedDate));
   const header = copy[view];
-  const syncCopy = { loading: '正在连接', syncing: '正在同步', synced: '已同步', offline: '本机模式' }[syncState];
+  const syncCopy = { loading: '正在连接', syncing: '正在同步', synced: '已同步', offline: '本机模式', device: '已保存在此 iPhone' }[syncState];
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
 
   function updateSnapshot(change: (current: AppSnapshot) => AppSnapshot) { setSnapshot((current) => stamp(change(current))); }
@@ -216,9 +272,9 @@ export default function Home() {
     setModal(false);
   }
 
-  function toggleTask(id: number, key = selectedDate) { updateRecord(key, (record) => ({ ...record, taskDone: record.taskDone.includes(id) ? record.taskDone.filter((taskId) => taskId !== id) : [...record.taskDone, id] })); }
+  function toggleTask(id: number, key = selectedDate) { const completing = !recordFor(key).taskDone.includes(id); updateRecord(key, (record) => ({ ...record, taskDone: record.taskDone.includes(id) ? record.taskDone.filter((taskId) => taskId !== id) : [...record.taskDone, id] })); if (completing) nativeSuccess(); else nativeImpact(); }
   function removeTask(id: number) { updateSnapshot((current) => ({ ...current, tasks: current.tasks.filter((task) => task.id !== id), records: Object.fromEntries(Object.entries(current.records).map(([key, record]) => [key, { ...record, taskDone: record.taskDone.filter((taskId) => taskId !== id) }])) })); setToast('待办已移除'); }
-  function addHabitProgress(id: number, key = view === 'today' ? selectedDate : todayKey) { const habit = habits.find((item) => item.id === id); if (!habit || !isScheduled(habit, key)) return; updateRecord(key, (record) => ({ ...record, habits: { ...record.habits, [String(id)]: Math.min(habit.target, (record.habits[String(id)] || 0) + 1) } })); setToast('已记录一次，继续保持'); }
+  function addHabitProgress(id: number, key = view === 'today' ? selectedDate : todayKey) { const habit = habits.find((item) => item.id === id); if (!habit || !isScheduled(habit, key)) return; const nextValue = Math.min(habit.target, (recordFor(key).habits[String(id)] || 0) + 1); updateRecord(key, (record) => ({ ...record, habits: { ...record.habits, [String(id)]: nextValue } })); if (nextValue >= habit.target) nativeSuccess(); else nativeImpact(); setToast('已记录一次，继续保持'); }
 
   function addMilestone(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!selectedPlan || !milestoneDraft.trim()) return;
@@ -231,11 +287,12 @@ export default function Home() {
   }
 
   function toggleMilestone(planId: number, milestoneId: number) {
+    const completing = !plans.find((plan) => plan.id === planId)?.milestones.find((item) => item.id === milestoneId)?.done;
     updateSnapshot((current) => ({ ...current, plans: current.plans.map((plan) => {
       if (plan.id !== planId) return plan; const milestones = plan.milestones.map((item) => item.id === milestoneId ? { ...item, done: !item.done } : item);
       const next = milestones.find((item) => !item.done)?.title || '所有里程碑均已完成';
       return { ...plan, milestones, progress: Math.round((milestones.filter((item) => item.done).length / Math.max(1, milestones.length)) * 100), next: `下一步：${next}` };
-    }) }));
+    }) })); if (completing) nativeSuccess(); else nativeImpact();
   }
 
   function removeMilestone(planId: number, milestoneId: number) {
@@ -245,7 +302,7 @@ export default function Home() {
     }) })); setToast('里程碑已移除');
   }
 
-  function saveHabitSettings() { if (!habitEditor) return; updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === habitEditor.id ? { ...habitEditor, days: habitEditor.days.length ? habitEditor.days : everyDay } : habit) })); setHabitEditor(null); setToast('习惯设置已保存'); }
+  async function saveHabitSettings() { if (!habitEditor) return; const savedHabit = { ...habitEditor, days: habitEditor.days.length ? habitEditor.days : everyDay }; try { const remindersReady = await syncHabitReminder(savedHabit); updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) })); setHabitEditor(null); nativeImpact(ImpactStyle.Medium); setToast(remindersReady ? '习惯设置已保存' : '设置已保存，请在系统设置中允许通知'); } catch { setToast('设置已保存，但系统提醒未能更新'); updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) })); setHabitEditor(null); } }
   function habitStreak(habit: Habit) { if (habit.paused) return 0; let streak = 0; for (let offset = 0; offset < 366; offset += 1) { const key = shiftDate(todayKey, -offset); if (!habit.days.includes(fromDateKey(key).getDay())) continue; if ((recordFor(key).habits[String(habit.id)] || 0) < habit.target) break; streak += 1; } return streak; }
 
   function exportData() { const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `weiguang-backup-${todayKey}.json`; anchor.click(); URL.revokeObjectURL(url); setToast('备份文件已导出'); }
@@ -280,7 +337,7 @@ export default function Home() {
 
       {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title}</h2><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="1" value={habitEditor.target} onChange={(event) => setHabitEditor({ ...habitEditor, target: Math.max(1, Number(event.target.value) || 1) })} /></label></div><button className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={saveHabitSettings}>保存设置</button></section></div>}
 
-      {dataModal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}><section className="modal data-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="data-title"><button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button><span className="section-label">数据与安装</span><h2 id="data-title">你的微光，由你保管</h2><div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>{syncState === 'offline' ? '数据已安全保存在这台设备，联网后会自动同步。' : '数据同时保存在设备与私有云端。'}</span></div></div><div className="data-actions"><button onClick={exportData}><b>导</b><span><strong>导出备份</strong><small>下载完整 JSON 数据</small></span></button><label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>{installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}</div><p className="ios-hint">在 iPhone Safari 中打开后，点“分享”→“添加到主屏幕”，即可安装当前版本。</p><button className="reset-button" onClick={resetData}>清空并恢复示例数据</button></section></div>}
+      {dataModal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}><section className="modal data-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="data-title"><button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button><span className="section-label">数据与安装</span><h2 id="data-title">你的微光，由你保管</h2><div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>{syncState === 'device' ? '数据保存在这台 iPhone；提醒由系统本地执行。' : syncState === 'offline' ? '数据已安全保存在这台设备，联网后会自动同步。' : '数据同时保存在设备与私有云端。'}</span></div></div><div className="data-actions"><button onClick={exportData}><b>导</b><span><strong>导出备份</strong><small>下载完整 JSON 数据</small></span></button><label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>{installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}</div><p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : '在 iPhone Safari 中打开后，点“分享”→“添加到主屏幕”，即可安装当前版本。'}</p><button className="reset-button" onClick={resetData}>清空并恢复示例数据</button></section></div>}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );
