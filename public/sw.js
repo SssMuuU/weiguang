@@ -1,4 +1,4 @@
-const CACHE = 'weiguang-v3';
+const CACHE = 'weiguang-v4';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-1024.png'];
 
 self.addEventListener('install', (event) => {

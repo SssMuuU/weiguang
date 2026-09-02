@@ -16,9 +16,9 @@ type SyncState = 'loading' | 'syncing' | 'synced' | 'offline' | 'device';
 type Milestone = { id: number; title: string; done: boolean };
 type Task = { id: number; title: string; time: string; tag: string; date: string; planId?: number };
 type Habit = { id: number; icon: string; title: string; target: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string };
-type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[] };
+type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[]; deadline: string; archived: boolean };
 type DailyRecord = { taskDone: number[]; habits: Record<string, number> };
-type AppSnapshot = { version: 3; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
+type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 const everyDay = [1, 2, 3, 4, 5, 6, 0];
@@ -31,9 +31,9 @@ const initialHabits: Habit[] = [
 ];
 
 const initialPlans: Plan[] = [
-  { id: 1, title: '完成微光 App 1.0', detail: '产品与设计', progress: 33, color: 'violet', next: '下一步：完成核心功能', milestones: [{ id: 101, title: '确定产品方向', done: true }, { id: 102, title: '完成浏览器 MVP', done: false }, { id: 103, title: '准备 iOS 测试版', done: false }] },
-  { id: 2, title: '建立稳定阅读节奏', detail: '个人成长', progress: 67, color: 'blue', next: '本周还需阅读 80 页', milestones: [{ id: 201, title: '选定阅读清单', done: true }, { id: 202, title: '连续阅读 7 天', done: true }, { id: 203, title: '完成本月第一本书', done: false }] },
-  { id: 3, title: '九月健康计划', detail: '健康生活', progress: 25, color: 'orange', next: '今晚散步 30 分钟', milestones: [{ id: 301, title: '记录初始状态', done: true }, { id: 302, title: '每周散步 4 次', done: false }, { id: 303, title: '保持规律睡眠', done: false }, { id: 304, title: '完成月末复盘', done: false }] },
+  { id: 1, title: '完成微光 App 1.0', detail: '产品与设计', progress: 33, color: 'violet', next: '下一步：完成核心功能', deadline: '2026-09-30', archived: false, milestones: [{ id: 101, title: '确定产品方向', done: true }, { id: 102, title: '完成浏览器 MVP', done: false }, { id: 103, title: '准备 iOS 测试版', done: false }] },
+  { id: 2, title: '建立稳定阅读节奏', detail: '个人成长', progress: 67, color: 'blue', next: '本周还需阅读 80 页', deadline: '2026-09-21', archived: false, milestones: [{ id: 201, title: '选定阅读清单', done: true }, { id: 202, title: '连续阅读 7 天', done: true }, { id: 203, title: '完成本月第一本书', done: false }] },
+  { id: 3, title: '九月健康计划', detail: '健康生活', progress: 25, color: 'orange', next: '今晚散步 30 分钟', deadline: '2026-09-30', archived: false, milestones: [{ id: 301, title: '记录初始状态', done: true }, { id: 302, title: '每周散步 4 次', done: false }, { id: 303, title: '保持规律睡眠', done: false }, { id: 304, title: '完成月末复盘', done: false }] },
 ];
 
 const navItems: { id: View; label: string; short: string }[] = [
@@ -53,8 +53,9 @@ function getMonthKeys(referenceKey: string) { const date = fromDateKey(reference
 function getPreviousMonthKeys(referenceKey: string) { const date = fromDateKey(referenceKey); date.setMonth(date.getMonth() - 1, 1); return getMonthKeys(toDateKey(date)); }
 function shortWeekday(key: string) { return new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(fromDateKey(key)).replace('周', ''); }
 function emptyRecord(): DailyRecord { return { taskDone: [], habits: {} }; }
-function stamp(snapshot: Omit<AppSnapshot, 'updatedAt'> | AppSnapshot): AppSnapshot { return { ...snapshot, version: 3, updatedAt: new Date().toISOString() }; }
+function stamp(snapshot: Omit<AppSnapshot, 'updatedAt'> | AppSnapshot): AppSnapshot { return { ...snapshot, version: 4, updatedAt: new Date().toISOString() }; }
 function planProgress(plan: Plan) { return plan.milestones.length ? Math.round((plan.milestones.filter((item) => item.done).length / plan.milestones.length) * 100) : plan.progress; }
+function planDeadlineCopy(deadline: string, today: string) { if (!deadline) return '未设置截止日期'; const days = Math.round((fromDateKey(deadline).getTime() - fromDateKey(today).getTime()) / 86400000); const date = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(fromDateKey(deadline)); return days < 0 ? `${date} · 已过期 ${Math.abs(days)} 天` : days === 0 ? `${date} · 今天截止` : `${date} · 还有 ${days} 天`; }
 
 function createSeedSnapshot(today: string): AppSnapshot {
   const tasks: Task[] = [
@@ -66,17 +67,17 @@ function createSeedSnapshot(today: string): AppSnapshot {
   getWeekKeys(today).forEach((key, index) => {
     records[key] = { taskDone: key === today ? [1] : [], habits: { '1': index === 2 ? 5 : index === 6 ? 6 : 8, '2': index === 1 ? 8 : index === 5 ? 15 : index === 6 ? 12 : 20, '3': index === 3 || index === 6 ? 0 : 1 } };
   });
-  return { version: 3, tasks, habits: initialHabits, plans: initialPlans, records, updatedAt: new Date().toISOString() };
+  return { version: 4, tasks, habits: initialHabits, plans: initialPlans, records, updatedAt: new Date().toISOString() };
 }
 
 function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnapshot {
   const records: Record<string, DailyRecord> = {};
   Object.entries(snapshot.records || {}).forEach(([key, record]) => { records[key === 'today' ? today : key] = { taskDone: Array.isArray(record?.taskDone) ? record.taskDone : [], habits: record?.habits && typeof record.habits === 'object' ? record.habits : {} }; });
   return {
-    version: 3,
+    version: 4,
     tasks: snapshot.tasks.map((task) => ({ id: task.id, title: task.title, time: task.time, tag: task.tag, date: task.date === 'today' || !task.date ? today : task.date, ...(typeof task.planId === 'number' ? { planId: task.planId } : {}) })),
     habits: snapshot.habits.map((habit) => ({ ...habit, days: Array.isArray(habit.days) && habit.days.length ? habit.days : everyDay, paused: Boolean(habit.paused), reminder: typeof habit.reminder === 'string' ? habit.reminder : '' })),
-    plans: snapshot.plans.map((plan) => ({ ...plan, milestones: Array.isArray(plan.milestones) ? plan.milestones : [] })),
+    plans: snapshot.plans.map((plan) => ({ ...plan, milestones: Array.isArray(plan.milestones) ? plan.milestones : [], deadline: typeof plan.deadline === 'string' ? plan.deadline : '', archived: Boolean(plan.archived) })),
     records,
     updatedAt: snapshot.updatedAt || new Date(0).toISOString(),
   };
@@ -86,14 +87,14 @@ function parseSnapshot(value: unknown): AppSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Partial<AppSnapshot>;
   if (!Array.isArray(item.tasks) || !Array.isArray(item.habits) || !Array.isArray(item.plans) || !item.records || typeof item.records !== 'object') return null;
-  return { version: 3, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
+  return { version: 4, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
 }
 
 async function readLocal(today: string): Promise<AppSnapshot> {
   try {
     const stored = Capacitor.isNativePlatform()
-      ? (await Preferences.get({ key: 'weiguang.snapshot.v3' })).value
-      : window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2');
+      ? (await Preferences.get({ key: 'weiguang.snapshot.v4' })).value || (await Preferences.get({ key: 'weiguang.snapshot.v3' })).value
+      : window.localStorage.getItem('weiguang.snapshot.v4') || window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2');
     const current = parseSnapshot(JSON.parse(stored || 'null'));
     if (current) return normalizeSnapshot(current, today);
   } catch { /* Invalid local cache falls back to seed data. */ }
@@ -157,6 +158,9 @@ export default function Home() {
   const [title, setTitle] = useState('');
   const [detail, setDetail] = useState('');
   const [planChoice, setPlanChoice] = useState('');
+  const [planDeadline, setPlanDeadline] = useState('');
+  const [planDeadlineDraft, setPlanDeadlineDraft] = useState('');
+  const [showArchivedPlans, setShowArchivedPlans] = useState(false);
   const [milestoneDraft, setMilestoneDraft] = useState('');
   const [reviewRange, setReviewRange] = useState<ReviewRange>('week');
   const [toast, setToast] = useState('');
@@ -192,10 +196,10 @@ export default function Home() {
   useEffect(() => {
     if (!ready) return;
     if (isNative) {
-      void Preferences.set({ key: 'weiguang.snapshot.v3', value: JSON.stringify(snapshot) });
+      void Preferences.set({ key: 'weiguang.snapshot.v4', value: JSON.stringify(snapshot) });
       return;
     }
-    window.localStorage.setItem('weiguang.snapshot.v3', JSON.stringify(snapshot));
+    window.localStorage.setItem('weiguang.snapshot.v4', JSON.stringify(snapshot));
     const timer = window.setTimeout(async () => {
       setSyncState('syncing');
       try { const response = await fetch('/api/state', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(snapshot) }); if (!response.ok) throw new Error('Sync failed'); setSyncState('synced'); }
@@ -213,6 +217,9 @@ export default function Home() {
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2200); return () => window.clearTimeout(timer); }, [toast]);
 
   const { tasks, habits, plans } = snapshot;
+  const activePlans = plans.filter((plan) => !plan.archived);
+  const archivedPlans = plans.filter((plan) => plan.archived);
+  const visiblePlans = showArchivedPlans ? archivedPlans : activePlans;
   const recordFor = (key: string) => snapshot.records[key] || emptyRecord();
   const isScheduled = (habit: Habit, key: string) => !habit.paused && habit.days.includes(fromDateKey(key).getDay());
   const selectedRecord = recordFor(selectedDate);
@@ -223,7 +230,7 @@ export default function Home() {
   const todayTotal = selectedTasks.length + selectedHabits.length;
   const todayDone = taskDone + habitDone;
   const progress = todayTotal ? Math.round((todayDone / todayTotal) * 100) : 0;
-  const averagePlan = plans.length ? Math.round(plans.reduce((sum, plan) => sum + planProgress(plan), 0) / plans.length) : 0;
+  const averagePlan = activePlans.length ? Math.round(activePlans.reduce((sum, plan) => sum + planProgress(plan), 0) / activePlans.length) : 0;
   const weekDays = useMemo(() => getWeekKeys(todayKey), [todayKey]);
   const monthDays = useMemo(() => getMonthKeys(todayKey), [todayKey]);
   const rangeDays = reviewRange === 'week' ? weekDays : monthDays;
@@ -259,7 +266,8 @@ export default function Home() {
   function updateSnapshot(change: (current: AppSnapshot) => AppSnapshot) { setSnapshot((current) => stamp(change(current))); }
   function updateRecord(key: string, change: (record: DailyRecord) => DailyRecord) { updateSnapshot((current) => ({ ...current, records: { ...current.records, [key]: change(current.records[key] || emptyRecord()) } })); }
   function navigate(next: View) { setView(next); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-  function openAdd(kind: AddKind) { setAddKind(kind); setTitle(''); setDetail(''); setPlanChoice(''); setModal(true); }
+  function openAdd(kind: AddKind) { setAddKind(kind); setTitle(''); setDetail(''); setPlanChoice(''); setPlanDeadline(''); setModal(true); }
+  function openPlan(plan: Plan) { setSelectedPlanId(plan.id); setPlanDeadlineDraft(plan.deadline); }
 
   function submitAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const cleanTitle = title.trim(); if (!cleanTitle) return; const id = Date.now();
@@ -269,7 +277,7 @@ export default function Home() {
     } else if (addKind === 'habit') {
       updateSnapshot((current) => ({ ...current, habits: [...current.habits, { id, icon: cleanTitle.slice(0, 1), title: cleanTitle, target: Math.max(1, Number(detail) || 1), unit: '次', color: 'violet', days: everyDay, paused: false, reminder: '' }] })); setToast('新习惯已创建');
     } else {
-      updateSnapshot((current) => ({ ...current, plans: [...current.plans, { id, title: cleanTitle, detail: detail.trim() || '个人计划', progress: 0, color: 'blue', next: '下一步：添加第一个里程碑', milestones: [] }] })); setToast('计划已开始');
+      updateSnapshot((current) => ({ ...current, plans: [...current.plans, { id, title: cleanTitle, detail: detail.trim() || '个人计划', progress: 0, color: 'blue', next: '下一步：添加第一个里程碑', milestones: [], deadline: planDeadline, archived: false }] })); setToast('计划已开始');
     }
     setModal(false);
   }
@@ -304,6 +312,9 @@ export default function Home() {
     }) })); setToast('里程碑已移除');
   }
 
+  function savePlanDeadline() { if (!selectedPlan) return; updateSnapshot((current) => ({ ...current, plans: current.plans.map((plan) => plan.id === selectedPlan.id ? { ...plan, deadline: planDeadlineDraft } : plan) })); nativeImpact(); setToast(planDeadlineDraft ? '截止日期已更新' : '截止日期已清除'); }
+  function togglePlanArchive() { if (!selectedPlan) return; const nextArchived = !selectedPlan.archived; updateSnapshot((current) => ({ ...current, plans: current.plans.map((plan) => plan.id === selectedPlan.id ? { ...plan, archived: nextArchived } : plan) })); setSelectedPlanId(null); nativeImpact(ImpactStyle.Medium); setToast(nextArchived ? '计划已归档' : '计划已恢复'); }
+
   async function saveHabitSettings() { if (!habitEditor) return; const savedHabit = { ...habitEditor, days: habitEditor.days.length ? habitEditor.days : everyDay }; try { const remindersReady = await syncHabitReminder(savedHabit); updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) })); setHabitEditor(null); nativeImpact(ImpactStyle.Medium); setToast(remindersReady ? '习惯设置已保存' : '设置已保存，请在系统设置中允许通知'); } catch { setToast('设置已保存，但系统提醒未能更新'); updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) })); setHabitEditor(null); } }
   function habitStreak(habit: Habit) { if (habit.paused) return 0; let streak = 0; for (let offset = 0; offset < 366; offset += 1) { const key = shiftDate(todayKey, -offset); if (!habit.days.includes(fromDateKey(key).getDay())) continue; if ((recordFor(key).habits[String(habit.id)] || 0) < habit.target) break; streak += 1; } return streak; }
 
@@ -334,7 +345,7 @@ export default function Home() {
 
         {view === 'today' && <><div className="date-controls glass-panel"><button onClick={() => setSelectedDate(shiftDate(selectedDate, -1))} aria-label="前一天">‹</button><div><strong>{isToday ? '今天' : selectedLabel}</strong><span>{selectedTasks.length} 项待办 · {habitDone}/{selectedHabits.length} 项习惯</span></div>{!isToday && <button className="back-today" onClick={() => setSelectedDate(todayKey)}>回到今天</button>}<button onClick={() => setSelectedDate(shiftDate(selectedDate, 1))} aria-label="后一天">›</button></div><section className="overview glass-panel" aria-label="所选日期进度"><div><span className="section-label">{isToday ? '今日进度' : '当日进度'}</span><strong>{progress === 100 ? '这一天的约定，都完成了。' : '慢慢来，也是在前进。'}</strong><p>已完成 {todayDone} 项，还有 {todayTotal - todayDone} 项等你。</p></div><div className="progress-ring" style={{ '--progress': `${progress}%` } as CSSProperties}><span>{progress}<small>%</small></span></div></section><section className="task-section" aria-labelledby="today-tasks"><div className="section-head"><div><span className="section-label">待办</span><h2 id="today-tasks">{isToday ? '今天' : selectedLabel}</h2></div><button className="add-button" onClick={() => openAdd('task')}><span>＋</span> 添加待办</button></div><div className="task-list glass-panel">{selectedTasks.length === 0 && <EmptyState text="这一天还没有待办，给自己安排一件小事吧。" onAdd={() => openAdd('task')} />}{selectedTasks.map((task) => { const done = selectedRecord.taskDone.includes(task.id); const linkedPlan = plans.find((plan) => plan.id === task.planId); return <article className={`task-row ${done ? 'is-done' : ''}`} key={task.id}><button className="check" onClick={() => toggleTask(task.id)} aria-label={`${done ? '取消完成' : '完成'} ${task.title}`}>{done ? '✓' : ''}</button><div className="task-copy"><strong>{task.title}</strong><span>{task.time}</span></div><span className={`tag ${linkedPlan ? 'linked' : ''}`}>{linkedPlan ? linkedPlan.title : task.tag}</span><button className="remove" onClick={() => removeTask(task.id)} aria-label={`删除 ${task.title}`}>×</button></article>; })}</div></section></>}
 
-        {view === 'plans' && <section className="view-section"><div className="section-head"><div><span className="section-label">{plans.length} 个进行中</span><h2>把大目标拆成下一步</h2></div><button className="add-button" onClick={() => openAdd('plan')}><span>＋</span> 新建计划</button></div><div className="plan-grid">{plans.map((plan) => { const calculated = planProgress(plan); const linkedCount = tasks.filter((task) => task.planId === plan.id).length; return <article className="plan-card glass-panel" key={plan.id}><div className={`plan-accent ${plan.color}`} /><div className="plan-title"><span>{plan.detail}</span><strong>{plan.title}</strong></div><div className="plan-percent"><b>{calculated}%</b><span>{plan.milestones.filter((item) => item.done).length}/{plan.milestones.length} 里程碑</span></div><div className="plan-progress"><i style={{ width: `${calculated}%` }} /></div><p>{plan.next} · {linkedCount} 项关联待办</p><button onClick={() => setSelectedPlanId(plan.id)}>查看计划</button></article>; })}</div></section>}
+        {view === 'plans' && <section className="view-section"><div className="section-head"><div><span className="section-label">{activePlans.length} 个进行中 · {archivedPlans.length} 个已归档</span><h2>{showArchivedPlans ? '完成过的，也值得被看见' : '把大目标拆成下一步'}</h2></div><div className="plan-head-actions"><button className={`archive-filter ${showArchivedPlans ? 'active' : ''}`} onClick={() => setShowArchivedPlans((current) => !current)}>{showArchivedPlans ? '返回进行中' : `查看归档 ${archivedPlans.length || ''}`}</button><button className="add-button" onClick={() => openAdd('plan')}><span>＋</span> 新建计划</button></div></div>{visiblePlans.length === 0 ? <div className="plan-empty glass-panel"><EmptyState text={showArchivedPlans ? '还没有归档计划，完成后再把它温柔地收好。' : '还没有进行中的计划，从一个清晰的小目标开始。'} onAdd={() => showArchivedPlans ? setShowArchivedPlans(false) : openAdd('plan')} /></div> : <div className="plan-grid">{visiblePlans.map((plan) => { const calculated = planProgress(plan); const linkedCount = tasks.filter((task) => task.planId === plan.id).length; return <article className={`plan-card glass-panel ${plan.archived ? 'archived' : ''}`} key={plan.id}><div className={`plan-accent ${plan.color}`} /><div className="plan-title"><span>{plan.detail}</span><strong>{plan.title}</strong></div><div className={`plan-deadline ${plan.deadline && plan.deadline < todayKey ? 'overdue' : ''}`}>{plan.archived ? '已归档' : planDeadlineCopy(plan.deadline, todayKey)}</div><div className="plan-percent"><b>{calculated}%</b><span>{plan.milestones.filter((item) => item.done).length}/{plan.milestones.length} 里程碑</span></div><div className="plan-progress"><i style={{ width: `${calculated}%` }} /></div><p>{plan.next} · {linkedCount} 项关联待办</p><button onClick={() => openPlan(plan)}>查看计划</button></article>; })}</div>}</section>}
 
         {view === 'habits' && <section className="view-section"><div className="section-head"><div><span className="section-label">自定义执行周期</span><h2>{habits.filter((habit) => isScheduled(habit, todayKey) && (recordFor(todayKey).habits[String(habit.id)] || 0) >= habit.target).length} / {habits.filter((habit) => isScheduled(habit, todayKey)).length} 今日已完成</h2></div><button className="add-button" onClick={() => openAdd('habit')}><span>＋</span> 新建习惯</button></div><div className="habit-board glass-panel"><div className="habit-week-head"><span>习惯</span>{weekDays.map((key) => <small key={key}>{shortWeekday(key)}</small>)}</div>{habits.map((habit) => { const scheduledToday = isScheduled(habit, todayKey); const done = scheduledToday && (recordFor(todayKey).habits[String(habit.id)] || 0) >= habit.target; return <article className={`habit-board-row ${habit.paused ? 'paused' : ''}`} key={habit.id}><button className="habit-name habit-name-button" onClick={() => setHabitEditor({ ...habit })}><div className={`habit-icon ${habit.color}`}>{habit.icon}</div><div><strong>{habit.title}</strong><span>{habit.paused ? '已暂停' : `连续 ${habitStreak(habit)} 天 · ${habit.reminder || '未设提醒'}`}</span></div></button>{weekDays.map((key) => { const scheduled = isScheduled(habit, key); const complete = scheduled && (recordFor(key).habits[String(habit.id)] || 0) >= habit.target; return <i key={key} className={complete ? 'complete' : scheduled ? '' : 'skipped'}>{complete ? '✓' : scheduled ? '' : '·'}</i>; })}<button onClick={() => addHabitProgress(habit.id, todayKey)} disabled={!scheduledToday || done}>{habit.paused ? '暂停' : !scheduledToday ? '休息日' : done ? '完成' : `+1 ${habit.unit}`}</button></article>; })}</div><div className="gentle-note glass-panel"><span>小提醒</span><p>点击习惯名称可设置执行星期、提醒时间或暂时停用。休息日不会影响连续记录。</p></div></section>}
 
@@ -345,9 +356,9 @@ export default function Home() {
 
       <nav className="mobile-nav glass-panel" aria-label="移动端导航">{navItems.slice(0, 2).map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><span>{item.short}</span>{item.label}</button>)}<button className="mobile-add" onClick={() => openAdd('task')} aria-label="快速添加">＋</button>{navItems.slice(2).map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><span>{item.short}</span>{item.label}</button>)}</nav>
 
-      {modal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setModal(false)}><section className="modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="add-title"><button className="modal-close" onClick={() => setModal(false)} aria-label="关闭">×</button><span className="section-label">快速记录</span><h2 id="add-title">把想法放进微光</h2><div className="kind-switch">{(['task', 'habit', 'plan'] as AddKind[]).map((kind) => <button key={kind} className={addKind === kind ? 'active' : ''} onClick={() => setAddKind(kind)}>{kind === 'task' ? '待办' : kind === 'habit' ? '习惯' : '计划'}</button>)}</div><form onSubmit={submitAdd}><label>名称<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={addKind === 'task' ? '例如：回复重要邮件' : addKind === 'habit' ? '例如：拉伸 10 分钟' : '例如：完成个人作品集'} /></label><label>{addKind === 'task' ? '时间或备注' : addKind === 'habit' ? '每日目标次数' : '计划分类'}<input value={detail} onChange={(event) => setDetail(event.target.value)} inputMode={addKind === 'habit' ? 'numeric' : 'text'} placeholder={addKind === 'task' ? '例如：18:30' : addKind === 'habit' ? '例如：1' : '例如：个人成长'} /></label>{addKind === 'task' && plans.length > 0 && <label>关联计划（可选）<select value={planChoice} onChange={(event) => setPlanChoice(event.target.value)}><option value="">不关联计划</option>{plans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</select></label>}<button className="submit-button" type="submit">保存到微光</button></form></section></div>}
+      {modal && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setModal(false)}><section className="modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="add-title"><button className="modal-close" onClick={() => setModal(false)} aria-label="关闭">×</button><span className="section-label">快速记录</span><h2 id="add-title">把想法放进微光</h2><div className="kind-switch">{(['task', 'habit', 'plan'] as AddKind[]).map((kind) => <button key={kind} className={addKind === kind ? 'active' : ''} onClick={() => setAddKind(kind)}>{kind === 'task' ? '待办' : kind === 'habit' ? '习惯' : '计划'}</button>)}</div><form onSubmit={submitAdd}><label>名称<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} placeholder={addKind === 'task' ? '例如：回复重要邮件' : addKind === 'habit' ? '例如：拉伸 10 分钟' : '例如：完成个人作品集'} /></label><label>{addKind === 'task' ? '时间或备注' : addKind === 'habit' ? '每日目标次数' : '计划分类'}<input value={detail} onChange={(event) => setDetail(event.target.value)} inputMode={addKind === 'habit' ? 'numeric' : 'text'} placeholder={addKind === 'task' ? '例如：18:30' : addKind === 'habit' ? '例如：1' : '例如：个人成长'} /></label>{addKind === 'plan' && <label>截止日期（可选）<input type="date" min={todayKey === 'today' ? undefined : todayKey} value={planDeadline} onChange={(event) => setPlanDeadline(event.target.value)} /></label>}{addKind === 'task' && activePlans.length > 0 && <label>关联计划（可选）<select value={planChoice} onChange={(event) => setPlanChoice(event.target.value)}><option value="">不关联计划</option>{activePlans.map((plan) => <option key={plan.id} value={plan.id}>{plan.title}</option>)}</select></label>}<button className="submit-button" type="submit">保存到微光</button></form></section></div>}
 
-      {selectedPlan && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setSelectedPlanId(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="plan-detail-title"><button className="modal-close" onClick={() => setSelectedPlanId(null)} aria-label="关闭">×</button><span className="section-label">{selectedPlan.detail}</span><h2 id="plan-detail-title">{selectedPlan.title}</h2><div className="detail-progress"><div><strong>{planProgress(selectedPlan)}%</strong><span>{selectedPlan.milestones.filter((item) => item.done).length}/{selectedPlan.milestones.length} 已完成</span></div><i><b style={{ width: `${planProgress(selectedPlan)}%` }} /></i></div><div className="milestone-list">{selectedPlan.milestones.length === 0 && <p>还没有里程碑，先写下一个清晰的阶段目标。</p>}{selectedPlan.milestones.map((item) => <div key={item.id} className={item.done ? 'done' : ''}><button onClick={() => toggleMilestone(selectedPlan.id, item.id)}>{item.done ? '✓' : ''}</button><span>{item.title}</span><button className="mini-remove" onClick={() => removeMilestone(selectedPlan.id, item.id)}>×</button></div>)}</div><form className="milestone-form" onSubmit={addMilestone}><input value={milestoneDraft} onChange={(event) => setMilestoneDraft(event.target.value)} placeholder="添加下一个里程碑" /><button type="submit">添加</button></form><div className="linked-tasks"><span className="section-label">关联待办</span>{tasks.filter((task) => task.planId === selectedPlan.id).length === 0 && <p>创建待办时选择这个计划，它会显示在这里。</p>}{tasks.filter((task) => task.planId === selectedPlan.id).map((task) => { const done = recordFor(task.date).taskDone.includes(task.id); return <div key={task.id}><i className={done ? 'done' : ''}>{done ? '✓' : ''}</i><span>{task.title}</span><small>{new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(fromDateKey(task.date))}</small></div>; })}</div></section></div>}
+      {selectedPlan && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setSelectedPlanId(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="plan-detail-title"><button className="modal-close" onClick={() => setSelectedPlanId(null)} aria-label="关闭">×</button><span className="section-label">{selectedPlan.detail} · {selectedPlan.archived ? '已归档' : planDeadlineCopy(selectedPlan.deadline, todayKey)}</span><h2 id="plan-detail-title">{selectedPlan.title}</h2><div className="detail-progress"><div><strong>{planProgress(selectedPlan)}%</strong><span>{selectedPlan.milestones.filter((item) => item.done).length}/{selectedPlan.milestones.length} 已完成</span></div><i><b style={{ width: `${planProgress(selectedPlan)}%` }} /></i></div><div className="plan-settings"><label>截止日期<input type="date" value={planDeadlineDraft} onChange={(event) => setPlanDeadlineDraft(event.target.value)} /></label><button onClick={savePlanDeadline}>保存日期</button></div><div className="milestone-list">{selectedPlan.milestones.length === 0 && <p>还没有里程碑，先写下一个清晰的阶段目标。</p>}{selectedPlan.milestones.map((item) => <div key={item.id} className={item.done ? 'done' : ''}><button onClick={() => toggleMilestone(selectedPlan.id, item.id)}>{item.done ? '✓' : ''}</button><span>{item.title}</span><button className="mini-remove" onClick={() => removeMilestone(selectedPlan.id, item.id)}>×</button></div>)}</div><form className="milestone-form" onSubmit={addMilestone}><input value={milestoneDraft} onChange={(event) => setMilestoneDraft(event.target.value)} placeholder="添加下一个里程碑" /><button type="submit">添加</button></form><div className="linked-tasks"><span className="section-label">关联待办</span>{tasks.filter((task) => task.planId === selectedPlan.id).length === 0 && <p>创建待办时选择这个计划，它会显示在这里。</p>}{tasks.filter((task) => task.planId === selectedPlan.id).map((task) => { const done = recordFor(task.date).taskDone.includes(task.id); return <div key={task.id}><i className={done ? 'done' : ''}>{done ? '✓' : ''}</i><span>{task.title}</span><small>{new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(fromDateKey(task.date))}</small></div>; })}</div><button className={`archive-plan-button ${selectedPlan.archived ? 'restore' : ''}`} onClick={togglePlanArchive}>{selectedPlan.archived ? '恢复为进行中计划' : '归档这个计划'}</button></section></div>}
 
       {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title}</h2><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="1" value={habitEditor.target} onChange={(event) => setHabitEditor({ ...habitEditor, target: Math.max(1, Number(event.target.value) || 1) })} /></label></div><button className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={saveHabitSettings}>保存设置</button></section></div>}
 
