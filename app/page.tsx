@@ -163,6 +163,16 @@ function nativeSuccess() {
   if (Capacitor.isNativePlatform()) void Haptics.notification({ type: NotificationType.Success });
 }
 
+async function registerOfflineApp() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    await navigator.serviceWorker.ready;
+    const urls = [window.location.href, ...performance.getEntriesByType('resource').map((entry) => entry.name)];
+    (registration.active || registration.waiting || registration.installing)?.postMessage({ type: 'CACHE_ASSETS', urls });
+  } catch { /* The browser app remains usable online when offline setup is unavailable. */ }
+}
+
 export default function Home() {
   const [view, setView] = useState<View>('today');
   const [snapshot, setSnapshot] = useState<AppSnapshot>(() => createEmptySnapshot('today'));
@@ -204,7 +214,7 @@ export default function Home() {
       if (isNative) void syncAllHabitReminders(local.snapshot.habits);
     })();
     if (isNative) document.body.classList.add('native-app');
-    else if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
+    else void registerOfflineApp();
     const captureInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
     window.addEventListener('beforeinstallprompt', captureInstall);
     return () => { window.removeEventListener('beforeinstallprompt', captureInstall); document.body.classList.remove('native-app'); };

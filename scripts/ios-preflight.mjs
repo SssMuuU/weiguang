@@ -40,6 +40,12 @@ function verifyProjectFiles() {
   requireText(appPage, '相关完成记录也会一并删除', '待办删除确认');
   requireText(appPage, '从空白开始', '首次启动引导');
   requireText(appPage, 'createEmptySnapshot', '空白初始数据');
+  requireText(appPage, 'CACHE_ASSETS', 'PWA 首屏资源缓存');
+
+  const serviceWorker = read('public/sw.js');
+  requireText(serviceWorker, "const CACHE = 'weiguang-v5'", 'PWA 缓存版本');
+  requireText(serviceWorker, "request.mode === 'navigate'", 'PWA 离线导航回退');
+  requireText(serviceWorker, 'Offline resource unavailable', 'PWA 缺失资源响应');
 
   const privacyPolicy = read('PRIVACY_POLICY.md');
   requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');

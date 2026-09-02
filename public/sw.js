@@ -1,4 +1,4 @@
-const CACHE = 'weiguang-v4';
+const CACHE = 'weiguang-v5';
 const SHELL = ['/', '/manifest.webmanifest', '/icon-1024.png'];
 
 self.addEventListener('install', (event) => {
@@ -13,6 +13,25 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'CACHE_ASSETS' || !Array.isArray(event.data.urls)) return;
+  const urls = Array.from(new Set(event.data.urls)).filter((value) => {
+    try {
+      const url = new URL(value, self.location.origin);
+      return url.origin === self.location.origin && !url.pathname.startsWith('/api/');
+    } catch {
+      return false;
+    }
+  });
+  event.waitUntil(
+    caches.open(CACHE).then((cache) => Promise.allSettled(urls.map(async (url) => {
+      const request = new Request(url, { credentials: 'same-origin' });
+      const response = await fetch(request);
+      if (response.ok) await cache.put(request, response);
+    }))),
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
@@ -24,6 +43,11 @@ self.addEventListener('fetch', (event) => {
         if (response.ok) caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
         return response;
       })
-      .catch(() => caches.match(request).then((cached) => cached || caches.match('/'))),
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        if (request.mode === 'navigate') return caches.match('/');
+        return new Response('Offline resource unavailable', { status: 503, statusText: 'Offline' });
+      }),
   );
 });
