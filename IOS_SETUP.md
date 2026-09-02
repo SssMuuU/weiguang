@@ -9,6 +9,7 @@
 - `mobile/` 是移动端静态入口，复用网页版 React 页面与毛玻璃样式。
 - `ios/` 是已生成的 Xcode 工程，使用 Swift Package Manager 管理插件。
 - 数据保存在 iPhone 本机；习惯提醒为系统本地通知，不依赖服务器。
+- 应用从后台重新激活时会自动刷新当天日期；启动、恢复备份或重置数据后会在已有授权下校准提醒，不会在启动时主动索要通知权限。
 - 完成待办、习惯目标和里程碑时提供系统触感反馈。
 - JSON 备份使用系统分享面板，可保存到“文件”、AirDrop 或其他应用。
 - 计划支持截止日期、逾期提示、归档和恢复；旧版数据会自动迁移到 v4。
@@ -33,6 +34,8 @@ Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己�
 - 完成待办、习惯目标和计划里程碑时有轻量触感。
 - 为习惯设置提醒时间后出现通知授权；允许后，通知按所选星期触发。
 - 暂停习惯或清空提醒时间后，相关待处理通知被取消。
+- 将应用留在后台跨过午夜再打开，“今天”、问候语和回顾日期应自动更新；若正在查看历史日期，则保持当前查看位置。
+- 修改习惯后退出再启动，或导入备份后，系统待处理提醒应与当前习惯周期一致。
 - 刘海屏与 Home Indicator 区域无遮挡，横竖屏均无横向溢出。
 - 导出 JSON 备份后能通过“恢复备份”重新导入。
 
@@ -48,4 +51,4 @@ Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己�
 
 正式外部测试前还需准备 App Store 隐私信息、支持链接、隐私政策和商店截图。当前版本不创建账号、不采集分析数据、不进行用户追踪，产品数据仅在设备本地和用户主动导出的备份中保存；网页版私有云数据不会自动进入 iOS App。
 
-参考：[Capacitor 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)、[iOS 工程说明](https://capacitorjs.com/docs/ios)、[本地通知](https://capacitorjs.com/docs/apis/local-notifications)、[触感反馈](https://capacitorjs.com/docs/apis/haptics)。
+参考：[Capacitor 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)、[iOS 工程说明](https://capacitorjs.com/docs/ios)、[应用生命周期](https://capacitorjs.com/docs/apis/app)、[本地通知](https://capacitorjs.com/docs/apis/local-notifications)、[触感反馈](https://capacitorjs.com/docs/apis/haptics)。

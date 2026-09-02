@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
@@ -114,13 +115,17 @@ function nextReminderDate(weekday: number, hour: number, minute: number) {
   return next;
 }
 
-async function syncHabitReminder(habit: Habit) {
+async function syncHabitReminder(habit: Habit, requestPermission = true) {
   if (!Capacitor.isNativePlatform()) return true;
   const notificationIds = everyDay.map((weekday) => ({ id: nativeNotificationId(habit.id, weekday) }));
-  await LocalNotifications.cancel({ notifications: notificationIds });
-  if (habit.paused || !habit.reminder || habit.days.length === 0) return true;
-  const permission = await LocalNotifications.requestPermissions();
+  if (habit.paused || !habit.reminder || habit.days.length === 0) {
+    await LocalNotifications.cancel({ notifications: notificationIds });
+    return true;
+  }
+  let permission = await LocalNotifications.checkPermissions();
+  if (permission.display !== 'granted' && requestPermission) permission = await LocalNotifications.requestPermissions();
   if (permission.display !== 'granted') return false;
+  await LocalNotifications.cancel({ notifications: notificationIds });
   const [hour, minute] = habit.reminder.split(':').map(Number);
   await LocalNotifications.schedule({
     notifications: habit.days.map((weekday) => ({
@@ -132,6 +137,16 @@ async function syncHabitReminder(habit: Habit) {
     })),
   });
   return true;
+}
+
+async function syncAllHabitReminders(habits: Habit[]) {
+  if (!Capacitor.isNativePlatform()) return;
+  const permission = await LocalNotifications.checkPermissions();
+  if (permission.display !== 'granted') return;
+  const pending = await LocalNotifications.getPending();
+  const managed = pending.notifications.filter((notification) => notification.id >= 100000 && notification.id < 1000000).map(({ id }) => ({ id }));
+  if (managed.length) await LocalNotifications.cancel({ notifications: managed });
+  await Promise.allSettled(habits.map((habit) => syncHabitReminder(habit, false)));
 }
 
 function nativeImpact(style = ImpactStyle.Light) {
@@ -174,7 +189,7 @@ export default function Home() {
       const local = await readLocal(today);
       setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
       setSnapshot(local); setReady(true);
-      if (isNative) { setSyncState('device'); return; }
+      if (isNative) { setSyncState('device'); void syncAllHabitReminders(local.habits); return; }
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
         if (!response.ok) throw new Error('Remote state unavailable');
@@ -191,6 +206,22 @@ export default function Home() {
     const captureInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
     window.addEventListener('beforeinstallprompt', captureInstall);
     return () => { window.removeEventListener('beforeinstallprompt', captureInstall); document.body.classList.remove('native-app'); };
+  }, [isNative]);
+
+  useEffect(() => {
+    if (!isNative) return;
+    const listener = App.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) return;
+      const now = new Date();
+      const nextToday = toDateKey(now);
+      setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
+      setTodayKey((currentToday) => {
+        if (currentToday === nextToday) return currentToday;
+        setSelectedDate((currentSelected) => currentSelected === currentToday ? nextToday : currentSelected);
+        return nextToday;
+      });
+    });
+    return () => { void listener.then((handle) => handle.remove()); };
   }, [isNative]);
 
   useEffect(() => {
@@ -331,8 +362,8 @@ export default function Home() {
     }
     const blob = new Blob([data], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName; anchor.click(); URL.revokeObjectURL(url); setToast('备份文件已导出');
   }
-  async function importData(file: File | undefined) { if (!file) return; try { const imported = parseSnapshot(JSON.parse(await file.text())); if (!imported) throw new Error('Invalid backup'); setSnapshot(stamp(normalizeSnapshot(imported, todayKey))); setDataModal(false); setToast('备份数据已恢复'); } catch { setToast('无法读取这个备份文件'); } }
-  function resetData() { if (!window.confirm('确定清空当前数据并恢复示例内容吗？建议先导出备份。')) return; setSnapshot(createSeedSnapshot(todayKey)); setSelectedDate(todayKey); setDataModal(false); setToast('数据已恢复为初始状态'); }
+  async function importData(file: File | undefined) { if (!file) return; try { const imported = parseSnapshot(JSON.parse(await file.text())); if (!imported) throw new Error('Invalid backup'); const restored = stamp(normalizeSnapshot(imported, todayKey)); setSnapshot(restored); if (isNative) void syncAllHabitReminders(restored.habits); setDataModal(false); setToast('备份数据已恢复'); } catch { setToast('无法读取这个备份文件'); } }
+  function resetData() { if (!window.confirm('确定清空当前数据并恢复示例内容吗？建议先导出备份。')) return; const seed = createSeedSnapshot(todayKey); setSnapshot(seed); if (isNative) void syncAllHabitReminders(seed.habits); setSelectedDate(todayKey); setDataModal(false); setToast('数据已恢复为初始状态'); }
   async function installApp() { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); }
 
   return (

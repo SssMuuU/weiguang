@@ -92,7 +92,7 @@
 
 当前技术：React + TypeScript + Vinext，使用响应式 CSS 实现桌面端与手机端共用界面。应用可在浏览器运行，并可通过托管链接直接体验。
 
-iOS 测试版已采用 Capacitor 8：`mobile/` 提供静态入口，`mobile-dist/` 是随 App 安装的本地资源，`ios/` 保存 Xcode 工程。iOS 版不加载远程网页，断网也可打开；数据通过 Capacitor Preferences 保存在设备，本地通知负责习惯提醒，Haptics 提供完成反馈。当前私有 D1 接口仍只服务网页版，待 M4 增加账号身份后再开放跨端同步。
+iOS 测试版已采用 Capacitor 8：`mobile/` 提供静态入口，`mobile-dist/` 是随 App 安装的本地资源，`ios/` 保存 Xcode 工程。iOS 版不加载远程网页，断网也可打开；数据通过 Capacitor Preferences 保存在设备，本地通知负责习惯提醒，Haptics 提供完成反馈。应用从后台恢复时会自动处理跨日刷新，并在已有通知授权下重新校准本地提醒。当前私有 D1 接口仍只服务网页版，待 M4 增加账号身份后再开放跨端同步。
 
 iOS 版数据备份已使用 Filesystem 写入临时 JSON 文件，再通过系统分享面板保存到“文件”、AirDrop 或其他用户选择的位置；网页版继续使用浏览器下载，两个平台共享同一备份格式。
 
@@ -152,6 +152,7 @@ iOS 演进建议：
 - [x] iOS 启动页
 - [x] Capacitor iOS 工程
 - [x] 本地通知与触感反馈（代码与资源已完成，待真机验收）
+- [x] 前后台切换后的跨日刷新与提醒校准
 - [x] iOS 原生备份导出与系统分享
 - [ ] TestFlight 内测
 
