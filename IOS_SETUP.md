@@ -6,6 +6,7 @@
 
 - Capacitor 8.5，最低支持 iOS 15。
 - App 标识：`com.weiguang.habits`；显示名称：微光。
+- 当前测试版版本：`0.1.0 (1)`，已与 npm 包及 Xcode Debug/Release 配置统一。
 - `mobile/` 是移动端静态入口，复用网页版 React 页面与毛玻璃样式。
 - `ios/` 是已生成的 Xcode 工程，使用 Swift Package Manager 管理插件。
 - 数据保存在 iPhone 本机；习惯提醒为系统本地通知，不依赖服务器。
@@ -20,10 +21,10 @@
 准备 macOS、Node.js 22 或更高版本、Xcode 26 或更高版本及 Xcode Command Line Tools。仓库拉取完成后，在项目根目录依次运行：
 
 1. `npm ci`
-2. `npm run ios:sync`
+2. `npm run ios:preflight`
 3. `npm run ios:open`
 
-Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己的 Apple Developer Team。确认 Bundle Identifier 可用，然后选择模拟器或已配对的 iPhone，点击运行。
+预检会重新生成移动端资源，核对版本号、Bundle Identifier、原生插件、图标、启动页和隐私清单；在 macOS 上还会执行一次无需签名的模拟器编译。Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己的 Apple Developer Team。确认 Bundle Identifier 可用，然后选择模拟器或已配对的 iPhone，点击运行。
 
 每次修改 React 页面后，只需重新执行 `npm run ios:sync`，再回到 Xcode 运行。不要直接编辑 `ios/App/App/public`，它会在同步时由 `mobile-dist` 覆盖。
 
@@ -45,7 +46,7 @@ Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己�
 
 真机清单通过后，在 Xcode 中完成以下事项：
 
-1. 将 Version 设为 `0.1.0`、Build 设为 `1`，后续每次上传递增 Build。
+1. 确认 Version 为 `0.1.0`、Build 为 `1`；当前工程已设置完成，后续每次上传递增 Build。
 2. 连接 App Store Connect 中对应的 App 记录，确认 Bundle Identifier 为 `com.weiguang.habits`。
 3. 选择 `Any iOS Device (arm64)`，执行 Product → Archive。
 4. 在 Organizer 中运行 Validate App；无阻塞问题后选择 Distribute App → App Store Connect → Upload。

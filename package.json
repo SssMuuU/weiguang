@@ -12,6 +12,7 @@
     "mobile:build": "vite build --config vite.mobile.config.ts",
     "ios:add": "npm run mobile:build && cap add ios",
     "ios:sync": "npm run mobile:build && cap sync ios",
+    "ios:preflight": "node scripts/ios-preflight.mjs",
     "ios:open": "cap open ios",
     "start": "vinext start",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern mobile-dist --ignore-pattern ios/App/App/public --ignore-pattern .npm-cache",
