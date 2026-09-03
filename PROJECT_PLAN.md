@@ -179,7 +179,8 @@ iOS 演进建议：
 - [x] 键盘焦点可见、弹窗内焦点循环与无障碍操作标签
 - [x] Windows 独立窗口运行与本机离线资源服务
 - [x] 不依赖 `chatgpt.site` 的 Windows 便携包、品牌启动器与 SHA-256 校验文件
-- [x] 可上传到国内静态托管的纯前端发布包
+- [x] Windows 单文件安装程序、当前用户安装、桌面与开始菜单快捷方式及卸载入口
+- [x] Windows 本机版隐藏浏览器/PWA 的二次安装入口
 - [x] 正式站点公开访问，无需登录即可安装使用
 - [x] Windows 一键生成带 SHA-256 的 Mac/iOS 交接包
 - [x] App Store 非豁免加密声明与 `arm64` 设备能力预检
@@ -190,7 +191,7 @@ iOS 演进建议：
 - [x] PWA 与 iOS 图标统一为无透明通道的标准 1024 × 1024 资源，并加入自动尺寸校验
 - [ ] TestFlight 内测
 
-Windows 安装说明见 `WINDOWS_SETUP.md`，iOS 交接说明见 `IOS_SETUP.md`。当前开发机为 Windows，已完成可安装 PWA 与可在此环境验证的静态构建、原生工程生成、插件同步和资源生成；Xcode 编译、签名、通知真机授权与 TestFlight 上传必须在 Mac 上完成。
+Windows 安装说明见 `WINDOWS_SETUP.md`，iOS 交接说明见 `IOS_SETUP.md`。当前开发机为 Windows，已完成单文件 Windows 安装程序，以及可在此环境验证的 iOS 静态构建、原生工程生成、插件同步和资源生成；Xcode 编译、签名、通知真机授权与 TestFlight 上传必须在 Mac 上完成。
 
 ### M4：账号与云同步
 

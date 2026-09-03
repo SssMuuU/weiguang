@@ -192,6 +192,7 @@ export default function Home() {
   useEffect(() => {
     const now = new Date();
     const today = toDateKey(now);
+    const isWindowsApp = window.location.hostname === '127.0.0.1' && window.location.port === '17895';
     void (async () => {
       const local = await readLocal(today);
       setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
@@ -201,9 +202,9 @@ export default function Home() {
     })();
     if (isNative) document.body.classList.add('native-app');
     else void registerOfflineApp();
-    const captureInstall = (event: Event) => { event.preventDefault(); setInstallPrompt(event as InstallPromptEvent); };
-    window.addEventListener('beforeinstallprompt', captureInstall);
-    return () => { window.removeEventListener('beforeinstallprompt', captureInstall); document.body.classList.remove('native-app'); };
+    const captureInstall = (event: Event) => { event.preventDefault(); if (!isWindowsApp) setInstallPrompt(event as InstallPromptEvent); };
+    if (!isWindowsApp) window.addEventListener('beforeinstallprompt', captureInstall);
+    return () => { if (!isWindowsApp) window.removeEventListener('beforeinstallprompt', captureInstall); document.body.classList.remove('native-app'); };
   }, [isNative]);
 
   useEffect(() => {
@@ -534,7 +535,7 @@ export default function Home() {
               <label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>
               {installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}
             </div>
-            <p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : 'Windows 离线版解压即可使用；iPhone Safari 可点“分享”→“添加到主屏幕”。'}</p>
+            <p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : 'Windows 可运行安装程序完成安装；iPhone Safari 可点“分享”→“添加到主屏幕”。'}</p>
             <details className="privacy-details"><summary><span><strong>隐私与版本</strong><small>无账号 · 无广告 · 不追踪</small></span><b aria-hidden="true">⌄</b></summary><div><p><strong>{isNative ? 'iPhone App' : '浏览器版'}</strong>不会上传你的计划内容，也不包含广告或分析 SDK。</p><p>本地通知由 iOS 在设备上执行；只有你主动导出备份时，系统才会把所选文件交给你指定的位置或应用。</p><small>微光 0.1.0（1）</small></div></details>
             <div className="data-reset-actions">
               <button className="restore-demo-button" onClick={restoreDemoData}>恢复示例数据</button>

@@ -42,7 +42,7 @@ internal static class WeiguangLauncher
                 return check;
             }
 
-            bool ownsServer = StartServer();
+            bool ownsServer = StartServer(AppPort);
             Process appProcess = OpenApp(browser);
             if (ownsServer && appProcess != null)
             {
@@ -74,12 +74,13 @@ internal static class WeiguangLauncher
     {
         int check = CheckPackage(browser);
         if (check != 0) return check;
-        if (!StartServer()) return 4;
+        if (!StartServer(0)) return 4;
         try
         {
+            int testPort = ((IPEndPoint)listener.LocalEndpoint).Port;
             using (TcpClient client = new TcpClient())
             {
-                client.Connect(IPAddress.Loopback, AppPort);
+                client.Connect(IPAddress.Loopback, testPort);
                 NetworkStream stream = client.GetStream();
                 byte[] request = Encoding.ASCII.GetBytes("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
                 stream.Write(request, 0, request.Length);
@@ -97,11 +98,11 @@ internal static class WeiguangLauncher
         }
     }
 
-    private static bool StartServer()
+    private static bool StartServer(int port)
     {
         try
         {
-            listener = new TcpListener(IPAddress.Loopback, AppPort);
+            listener = new TcpListener(IPAddress.Loopback, port);
             listener.Start();
             serverRunning = true;
             Thread serverThread = new Thread(ServerLoop);

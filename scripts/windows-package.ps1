@@ -5,10 +5,11 @@ $outputDirectory = Join-Path $projectRoot 'outputs'
 $version = '0.1.0'
 $archivePath = Join-Path $outputDirectory "weiguang-windows-$version.zip"
 $checksumPath = Join-Path $outputDirectory "weiguang-windows-$version.sha256.txt"
-$webArchivePath = Join-Path $outputDirectory "weiguang-web-static-$version.zip"
-$webChecksumPath = Join-Path $outputDirectory "weiguang-web-static-$version.sha256.txt"
+$installerPath = Join-Path $outputDirectory "微光安装程序-$version.exe"
+$installerChecksumPath = Join-Path $outputDirectory "微光安装程序-$version.sha256.txt"
 $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
 $stageDirectory = [System.IO.Path]::GetFullPath((Join-Path $tempRoot ("weiguang-windows-" + [guid]::NewGuid().ToString('N'))))
+$iconPath = [System.IO.Path]::GetFullPath((Join-Path $tempRoot ("weiguang-icon-" + [guid]::NewGuid().ToString('N') + '.ico')))
 $safeTempPrefix = $tempRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
 
 if (-not $stageDirectory.StartsWith($safeTempPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -28,9 +29,9 @@ try {
   }
 
   $sourcePath = Join-Path $projectRoot 'windows\WeiguangLauncher.cs'
+  $installerSourcePath = Join-Path $projectRoot 'windows\WeiguangInstaller.cs'
   $readmePath = Join-Path $projectRoot 'windows\WINDOWS_PACKAGE_README.txt'
   $pngPath = Join-Path $projectRoot 'public\icon-1024.png'
-  $iconPath = Join-Path $stageDirectory 'weiguang.ico'
   $exePath = Join-Path $stageDirectory '微光.exe'
   $appDirectory = Join-Path $stageDirectory 'app'
 
@@ -100,17 +101,20 @@ try {
 
   & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll "/win32icon:$iconPath" "/out:$exePath" $sourcePath
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
-  Remove-Item -LiteralPath $iconPath -Force
   $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($checkProcess.ExitCode -ne 0) { throw "微光 Windows 离线包自检失败，退出码：$($checkProcess.ExitCode)" }
 
   Copy-Item -LiteralPath $readmePath -Destination (Join-Path $stageDirectory '使用说明.txt')
   if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
   if (Test-Path -LiteralPath $checksumPath) { Remove-Item -LiteralPath $checksumPath -Force }
-  if (Test-Path -LiteralPath $webArchivePath) { Remove-Item -LiteralPath $webArchivePath -Force }
-  if (Test-Path -LiteralPath $webChecksumPath) { Remove-Item -LiteralPath $webChecksumPath -Force }
+  if (Test-Path -LiteralPath $installerPath) { Remove-Item -LiteralPath $installerPath -Force }
+  if (Test-Path -LiteralPath $installerChecksumPath) { Remove-Item -LiteralPath $installerChecksumPath -Force }
   Compress-Archive -Path (Join-Path $stageDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal
-  Compress-Archive -Path (Join-Path $appDirectory '*') -DestinationPath $webArchivePath -CompressionLevel Optimal
+
+  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$archivePath,WeiguangPayload.zip" "/win32icon:$iconPath" "/out:$installerPath" $installerSourcePath
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installerPath)) { throw '微光 Windows 安装程序编译失败。' }
+  $installerCheck = Start-Process -FilePath $installerPath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
+  if ($installerCheck.ExitCode -ne 0) { throw "微光 Windows 安装程序自检失败，退出码：$($installerCheck.ExitCode)" }
 
   function Write-Checksum([string]$Path, [string]$ChecksumFile) {
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
@@ -126,12 +130,15 @@ try {
   }
 
   $hash = Write-Checksum $archivePath $checksumPath
-  $webHash = Write-Checksum $webArchivePath $webChecksumPath
-  Write-Output "Windows 分享包已生成：$archivePath"
+  $installerHash = Write-Checksum $installerPath $installerChecksumPath
+  Write-Output "Windows 安装程序已生成：$installerPath"
+  Write-Output "SHA-256：$installerHash"
+  Write-Output "Windows 便携包已生成：$archivePath"
   Write-Output "SHA-256：$hash"
-  Write-Output "国内静态托管包已生成：$webArchivePath"
-  Write-Output "SHA-256：$webHash"
 } finally {
+  if ($iconPath.StartsWith($safeTempPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $iconPath)) {
+    Remove-Item -LiteralPath $iconPath -Force
+  }
   if ($stageDirectory.StartsWith($safeTempPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $stageDirectory)) {
     Remove-Item -LiteralPath $stageDirectory -Recurse -Force
   }

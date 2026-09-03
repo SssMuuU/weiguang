@@ -59,6 +59,7 @@ function verifyProjectFiles() {
   requireText(appPage, 'createEmptySnapshot', '空白初始数据');
   requireText(appPage, '恢复示例数据', '独立恢复示例数据操作');
   requireText(appPage, '清空全部数据', '独立清空数据操作');
+  requireText(appPage, "window.location.port === '17895'", 'Windows 安装版隐藏浏览器安装入口');
   requireText(appPage, 'CACHE_ASSETS', 'PWA 首屏资源缓存');
   requireText(appPage, 'handleDialogKey', '弹窗键盘焦点管理');
   requireText(appPage, '打开微光信息', '顶部信息入口');
