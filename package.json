@@ -16,6 +16,7 @@
     "ios:handoff": "node scripts/ios-handoff.mjs",
     "ios:open": "cap open ios",
     "start": "vinext start",
+    "test": "node --experimental-strip-types --test tests/weiguang-core.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern mobile-dist --ignore-pattern ios/App/App/public --ignore-pattern .npm-cache",
     "db:generate": "drizzle-kit generate"
   },

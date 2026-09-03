@@ -9,21 +9,37 @@ import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Preferences } from '@capacitor/preferences';
 import { Share } from '@capacitor/share';
+import {
+  emptyRecord,
+  everyDay,
+  fromDateKey,
+  getMonthKeys,
+  getPreviousMonthKeys,
+  getWeekKeys,
+  moveTaskCompletion,
+  nextMilestoneCopy,
+  normalizeSnapshot,
+  parseSnapshot,
+  planDeadlineCopy,
+  planProgress,
+  shiftDate,
+  shortWeekday,
+  stamp,
+  toDateKey,
+  type AppSnapshot,
+  type DailyRecord,
+  type Habit,
+  type LocalReadResult,
+  type Plan,
+  type Task,
+} from '@/lib/weiguang-core';
 
 type View = 'today' | 'plans' | 'habits' | 'review';
 type AddKind = 'task' | 'habit' | 'plan';
 type ReviewRange = 'week' | 'month';
 type SyncState = 'loading' | 'device';
-type Milestone = { id: number; title: string; done: boolean };
-type Task = { id: number; title: string; time: string; note: string; tag: string; date: string; planId?: number };
-type Habit = { id: number; icon: string; title: string; target: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string };
-type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[]; deadline: string; archived: boolean };
-type DailyRecord = { taskDone: number[]; habits: Record<string, number> };
-type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
-type LocalReadResult = { snapshot: AppSnapshot; firstRun: boolean };
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
-const everyDay = [1, 2, 3, 4, 5, 6, 0];
 const weekDayOptions = [{ value: 1, label: '一' }, { value: 2, label: '二' }, { value: 3, label: '三' }, { value: 4, label: '四' }, { value: 5, label: '五' }, { value: 6, label: '六' }, { value: 0, label: '日' }];
 
 const initialHabits: Habit[] = [
@@ -46,20 +62,6 @@ const copy: Record<View, { eyebrow: string; title: string }> = {
   today: { eyebrow: '把注意力放在此刻', title: '今天想完成什么？' }, plans: { eyebrow: '从愿望到行动', title: '正在推进的计划' }, habits: { eyebrow: '微小重复，长期复利', title: '让好习惯自然发生' }, review: { eyebrow: '看见每一点进步', title: '你的行动回顾' },
 };
 
-function pad(value: number) { return String(value).padStart(2, '0'); }
-function toDateKey(date: Date) { return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`; }
-function fromDateKey(key: string) { if (key === 'today') return new Date(); const [year, month, day] = key.split('-').map(Number); return new Date(year, month - 1, day, 12); }
-function shiftDate(key: string, amount: number) { const date = fromDateKey(key); date.setDate(date.getDate() + amount); return toDateKey(date); }
-function getWeekKeys(endKey: string) { return Array.from({ length: 7 }, (_, index) => shiftDate(endKey, index - 6)); }
-function getMonthKeys(referenceKey: string) { const date = fromDateKey(referenceKey); const total = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(); return Array.from({ length: total }, (_, index) => toDateKey(new Date(date.getFullYear(), date.getMonth(), index + 1, 12))); }
-function getPreviousMonthKeys(referenceKey: string) { const date = fromDateKey(referenceKey); date.setMonth(date.getMonth() - 1, 1); return getMonthKeys(toDateKey(date)); }
-function shortWeekday(key: string) { return new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(fromDateKey(key)).replace('周', ''); }
-function emptyRecord(): DailyRecord { return { taskDone: [], habits: {} }; }
-function stamp(snapshot: Omit<AppSnapshot, 'updatedAt'> | AppSnapshot): AppSnapshot { return { ...snapshot, version: 4, updatedAt: new Date().toISOString() }; }
-function planProgress(plan: Plan) { return plan.milestones.length ? Math.round((plan.milestones.filter((item) => item.done).length / plan.milestones.length) * 100) : plan.progress; }
-function nextMilestoneCopy(milestones: Milestone[]) { const next = milestones.find((item) => !item.done); return next ? `下一步：${next.title}` : milestones.length ? '所有里程碑均已完成' : '下一步：添加第一个里程碑'; }
-function planDeadlineCopy(deadline: string, today: string) { if (!deadline) return '未设置截止日期'; const days = Math.round((fromDateKey(deadline).getTime() - fromDateKey(today).getTime()) / 86400000); const date = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(fromDateKey(deadline)); return days < 0 ? `${date} · 已过期 ${Math.abs(days)} 天` : days === 0 ? `${date} · 今天截止` : `${date} · 还有 ${days} 天`; }
-
 function createSeedSnapshot(today: string): AppSnapshot {
   const tasks: Task[] = [
     { id: 1, title: '完成产品首页线框', time: '09:30', note: '确认手机端信息层级', tag: '专注', date: today, planId: 1 },
@@ -75,26 +77,6 @@ function createSeedSnapshot(today: string): AppSnapshot {
 
 function createEmptySnapshot(today: string): AppSnapshot {
   return { version: 4, tasks: [], habits: [], plans: [], records: { [today]: emptyRecord() }, updatedAt: new Date().toISOString() };
-}
-
-function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnapshot {
-  const records: Record<string, DailyRecord> = {};
-  Object.entries(snapshot.records || {}).forEach(([key, record]) => { records[key === 'today' ? today : key] = { taskDone: Array.isArray(record?.taskDone) ? record.taskDone : [], habits: record?.habits && typeof record.habits === 'object' ? record.habits : {} }; });
-  return {
-    version: 4,
-    tasks: snapshot.tasks.map((task) => ({ id: task.id, title: task.title, time: task.time, note: typeof task.note === 'string' ? task.note : '', tag: task.tag, date: task.date === 'today' || !task.date ? today : task.date, ...(typeof task.planId === 'number' ? { planId: task.planId } : {}) })),
-    habits: snapshot.habits.map((habit) => ({ ...habit, days: Array.isArray(habit.days) && habit.days.length ? habit.days : everyDay, paused: Boolean(habit.paused), reminder: typeof habit.reminder === 'string' ? habit.reminder : '' })),
-    plans: snapshot.plans.map((plan) => { const milestones = Array.isArray(plan.milestones) ? plan.milestones : []; return { ...plan, milestones, next: nextMilestoneCopy(milestones), deadline: typeof plan.deadline === 'string' ? plan.deadline : '', archived: Boolean(plan.archived) }; }),
-    records,
-    updatedAt: snapshot.updatedAt || new Date(0).toISOString(),
-  };
-}
-
-function parseSnapshot(value: unknown): AppSnapshot | null {
-  if (!value || typeof value !== 'object') return null;
-  const item = value as Partial<AppSnapshot>;
-  if (!Array.isArray(item.tasks) || !Array.isArray(item.habits) || !Array.isArray(item.plans) || !item.records || typeof item.records !== 'object') return null;
-  return { version: 4, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
 }
 
 async function readLocal(today: string): Promise<LocalReadResult> {
@@ -349,15 +331,8 @@ export default function Home() {
     const cleanTitle = taskEditor.title.trim();
     if (!original || !cleanTitle || !taskEditor.date) return;
     const edited: Task = { ...taskEditor, title: cleanTitle, time: taskEditor.time.trim() || '未设时间', note: taskEditor.note.trim() };
-    const wasDone = recordFor(original.date).taskDone.includes(original.id);
     updateSnapshot((current) => {
-      const records = { ...current.records };
-      if (original.date !== edited.date) {
-        const oldRecord = records[original.date] || emptyRecord();
-        const newRecord = records[edited.date] || emptyRecord();
-        records[original.date] = { ...oldRecord, taskDone: oldRecord.taskDone.filter((taskId) => taskId !== edited.id) };
-        records[edited.date] = { ...newRecord, taskDone: wasDone ? Array.from(new Set([...newRecord.taskDone, edited.id])) : newRecord.taskDone.filter((taskId) => taskId !== edited.id) };
-      }
+      const records = moveTaskCompletion(current.records, edited.id, original.date, edited.date);
       return { ...current, tasks: current.tasks.map((task) => task.id === edited.id ? edited : task), records };
     });
     if (original.date !== edited.date) setSelectedDate(edited.date);

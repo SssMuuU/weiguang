@@ -118,6 +118,7 @@ function buildOnMac() {
 }
 
 try {
+  runNpm(['test']);
   runNpm(['run', 'lint']);
   run(process.execPath, [join(root, 'node_modules/typescript/bin/tsc'), '--noEmit']);
   runNpm(['run', 'ios:sync']);

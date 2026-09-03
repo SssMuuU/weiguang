@@ -34,7 +34,7 @@
 2. `npm run ios:preflight`
 3. `npm run ios:open`
 
-预检会重新生成移动端资源，核对版本号、Bundle Identifier、64 位设备能力、加密出口声明、原生插件、图标、启动页、隐私清单、应用内隐私文案和 App Store 发布资料；在 macOS 上还会执行一次无需签名的模拟器编译。Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己的 Apple Developer Team。确认 Bundle Identifier 可用，然后选择模拟器或已配对的 iPhone，点击运行。
+预检会先运行核心业务规则回归测试，再重新生成移动端资源，核对版本号、Bundle Identifier、64 位设备能力、加密出口声明、原生插件、图标、启动页、隐私清单、应用内隐私文案和 App Store 发布资料；在 macOS 上还会执行一次无需签名的模拟器编译。Xcode 打开后选择 `App` target，在 Signing & Capabilities 中选择自己的 Apple Developer Team。确认 Bundle Identifier 可用，然后选择模拟器或已配对的 iPhone，点击运行。
 
 每次修改 React 页面后，只需重新执行 `npm run ios:sync`，再回到 Xcode 运行。不要直接编辑 `ios/App/App/public`，它会在同步时由 `mobile-dist` 覆盖。
 
