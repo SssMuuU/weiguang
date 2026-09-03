@@ -66,6 +66,7 @@ function verifyProjectFiles() {
   requireText(storeMetadata, 'chatgpt.site/privacy', 'App Store 隐私政策网址');
 
   const project = read('ios/App/App.xcodeproj/project.pbxproj');
+  requireText(project, 'developmentRegion = "zh-Hans";', 'Xcode 默认语言');
   requireText(project, 'MARKETING_VERSION = 0.1.0;', 'Xcode 版本设置');
   requireText(project, 'CURRENT_PROJECT_VERSION = 1;', 'Xcode 构建号');
   requireText(project, 'PRODUCT_BUNDLE_IDENTIFIER = com.weiguang.habits;', 'Bundle Identifier');
@@ -75,6 +76,8 @@ function verifyProjectFiles() {
 
   const info = read('ios/App/App/Info.plist');
   requireText(info, '<string>微光</string>', 'App 显示名称');
+  requireText(info, '<key>CFBundleLocalizations</key>', 'App 本地化声明');
+  requireText(info, '<string>zh-Hans</string>', 'App 简体中文语言声明');
   requireText(info, '$(MARKETING_VERSION)', 'Info.plist 版本绑定');
   requireText(info, '$(CURRENT_PROJECT_VERSION)', 'Info.plist 构建号绑定');
   requireText(info, '<key>ITSAppUsesNonExemptEncryption</key>', 'App Store 加密出口声明');

@@ -6,6 +6,7 @@
 - Bundle Identifier：`com.weiguang.habits`
 - 版本：`0.1.0`
 - 构建号：`1`
+- 首发语言：简体中文（`zh-Hans`）
 - 主分类：效率
 - 副分类：生活
 - 副标题：把每一点行动，慢慢变成生活

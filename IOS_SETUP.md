@@ -6,6 +6,7 @@
 
 - Capacitor 8.5，最低支持 iOS 15。
 - 首个测试版仅支持 iPhone；iPad 待完成专门布局与截图验收后再开放。
+- 首发界面与商店资料均为简体中文，Bundle 默认语言已设为 `zh-Hans`。
 - App 标识：`com.weiguang.habits`；显示名称：微光。
 - 当前测试版版本：`0.1.0 (1)`，已与 npm 包及 Xcode Debug/Release 配置统一。
 - `mobile/` 是移动端静态入口，复用网页版 React 页面与毛玻璃样式。
