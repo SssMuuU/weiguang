@@ -5,6 +5,7 @@
 当前 iOS 结构：
 
 - Capacitor 8.5，最低支持 iOS 15。
+- 首个测试版仅支持 iPhone；iPad 待完成专门布局与截图验收后再开放。
 - App 标识：`com.weiguang.habits`；显示名称：微光。
 - 当前测试版版本：`0.1.0 (1)`，已与 npm 包及 Xcode Debug/Release 配置统一。
 - `mobile/` 是移动端静态入口，复用网页版 React 页面与毛玻璃样式。
@@ -54,7 +55,7 @@
 - 将应用留在后台跨过午夜再打开，“今天”、问候语和回顾日期应自动更新；若正在查看历史日期，则保持当前查看位置。
 - 修改习惯后退出再启动，或导入备份后，系统待处理提醒应与当前习惯周期一致。
 - 在“今天”切换到历史日期，可用“－ / ＋”补记或撤销习惯次数；切到未来日期时按钮不可操作。
-- 刘海屏与 Home Indicator 区域无遮挡，横竖屏均无横向溢出。
+- iPhone 刘海屏与 Home Indicator 区域无遮挡，横竖屏均无横向溢出。
 - 导出 JSON 备份后能通过“恢复备份”重新导入。
 - 使用外接键盘打开首次引导、数据管理及编辑弹窗，Tab / Shift+Tab 不会进入背景页面；普通弹窗可用 Esc 关闭并把焦点还给原入口，首次引导必须明确选择开始方式。
 
@@ -69,5 +70,7 @@
 5. 等待构建处理完成，补齐测试说明并添加内部测试员。
 
 正式外部测试前还需把 `APP_STORE_METADATA.md` 中的支持邮箱、支持网址和隐私政策网址补齐，并准备商店截图。当前版本不创建账号、不采集分析数据、不进行用户追踪，产品数据仅在设备本地和用户主动导出的备份中保存。
+
+截图尺寸、页面顺序与取景说明见 `APP_STORE_SCREENSHOTS.md`。首版工程为 iPhone-only，不需要提交 iPad 截图。
 
 参考：[Capacitor 环境要求](https://capacitorjs.com/docs/getting-started/environment-setup)、[iOS 工程说明](https://capacitorjs.com/docs/ios)、[应用生命周期](https://capacitorjs.com/docs/apis/app)、[本地通知](https://capacitorjs.com/docs/apis/local-notifications)、[触感反馈](https://capacitorjs.com/docs/apis/haptics)。

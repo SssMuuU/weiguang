@@ -70,6 +70,8 @@ function verifyProjectFiles() {
   requireText(project, 'CURRENT_PROJECT_VERSION = 1;', 'Xcode 构建号');
   requireText(project, 'PRODUCT_BUNDLE_IDENTIFIER = com.weiguang.habits;', 'Bundle Identifier');
   requireText(project, 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;', 'iOS 最低版本');
+  const phoneTargets = project.match(/TARGETED_DEVICE_FAMILY = 1;/g) || [];
+  if (phoneTargets.length !== 2 || project.includes('TARGETED_DEVICE_FAMILY = "1,2";')) throw new Error('Xcode Debug/Release 必须保持 iPhone-only，避免首版产生未验收的 iPad 发布要求。');
 
   const info = read('ios/App/App/Info.plist');
   requireText(info, '<string>微光</string>', 'App 显示名称');

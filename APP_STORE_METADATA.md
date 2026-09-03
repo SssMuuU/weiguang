@@ -48,7 +48,7 @@
 ## 仍需人工准备
 
 - 支持邮箱。
-- iPhone 6.9 英寸和 6.5 英寸截图；如支持 iPad，再补齐 iPad 截图。
+- iPhone 6.9 英寸截图；内容顺序和可接受尺寸见 `APP_STORE_SCREENSHOTS.md`。
 - App Store Connect App 记录、价格与销售范围。
 - 最终上传前确认二进制仍只使用系统或其他豁免加密；当前 `Info.plist` 已将 `ITSAppUsesNonExemptEncryption` 设为 `false`。
 - Xcode 签名团队、Archive、Validate 与 Upload。
