@@ -54,3 +54,14 @@ export function moveTaskCompletion(records: Record<string, DailyRecord>, taskId:
     [to]: { ...newRecord, taskDone: wasDone ? Array.from(new Set([...newRecord.taskDone, taskId])) : newRecord.taskDone.filter((id) => id !== taskId) },
   };
 }
+
+export function deletePlanFromSnapshot(snapshot: AppSnapshot, planIdToDelete: number): AppSnapshot {
+  return {
+    ...snapshot,
+    plans: snapshot.plans.filter((plan) => plan.id !== planIdToDelete),
+    tasks: snapshot.tasks.map((task) => {
+      const { planId, ...unlinkedTask } = task;
+      return planId === planIdToDelete ? unlinkedTask : task;
+    }),
+  };
+}

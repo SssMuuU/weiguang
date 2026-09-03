@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  deletePlanFromSnapshot,
   getMonthKeys,
   getPreviousMonthKeys,
   getWeekKeys,
@@ -58,6 +59,29 @@ test('待办改期会迁移完成状态且不会产生重复 ID', () => {
   assert.deepEqual(moved['2026-09-03'].taskDone, [8]);
   assert.deepEqual(moved['2026-09-04'].taskDone, [7, 9]);
   assert.deepEqual(records['2026-09-03'].taskDone, [7, 8]);
+});
+
+test('删除计划会保留待办和完成记录，只解除对应计划关联', () => {
+  const snapshot = {
+    version: 4,
+    tasks: [
+      { id: 1, title: '保留我', time: '', note: '', tag: '', date: '2026-09-03', planId: 7 },
+      { id: 2, title: '其他计划', time: '', note: '', tag: '', date: '2026-09-03', planId: 8 },
+    ],
+    habits: [],
+    plans: [
+      { id: 7, title: '删除计划', detail: '', progress: 0, color: 'blue', next: '', milestones: [{ id: 71, title: '随计划删除', done: false }], deadline: '', archived: false },
+      { id: 8, title: '保留计划', detail: '', progress: 0, color: 'blue', next: '', milestones: [], deadline: '', archived: false },
+    ],
+    records: { '2026-09-03': { taskDone: [1], habits: {} } },
+    updatedAt: '2026-09-03T00:00:00.000Z',
+  } satisfies AppSnapshot;
+  const result = deletePlanFromSnapshot(snapshot, 7);
+  assert.deepEqual(result.plans.map((plan) => plan.id), [8]);
+  assert.equal(result.tasks[0].planId, undefined);
+  assert.equal(result.tasks[1].planId, 8);
+  assert.deepEqual(result.records, snapshot.records);
+  assert.equal(snapshot.tasks[0].planId, 7);
 });
 
 test('备份入口拒绝不完整结构并统一到 v4', () => {

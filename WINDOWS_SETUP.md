@@ -4,6 +4,10 @@ Windows 首个可用版本采用 PWA：安装后会出现在开始菜单和任�
 
 正式地址：[打开微光](https://weiguang-plan-habits.workspace-192140.chatgpt.site)。站点已开放免登录访问。
 
+如果需要发给家人朋友，可直接分享 `outputs/weiguang-windows-0.1.0.zip`。对方解压后双击“微光.exe”即可使用，不需要管理员权限；程序会优先以 Edge 或 Chrome 独立窗口打开公开版。首次完整打开需要联网，之后由 PWA 缓存提供离线能力。
+
+开发者可在项目根目录运行 `npm run windows:package` 重新生成分享包及对应 SHA-256 校验文件。
+
 ## 安装
 
 1. 使用 Microsoft Edge 或 Google Chrome 打开微光正式地址。
@@ -23,4 +27,5 @@ Windows 首个可用版本采用 PWA：安装后会出现在开始菜单和任�
 ## 当前边界
 
 - Windows PWA 没有 iOS 本地通知和触感反馈；核心计划、习惯、待办、回顾、备份与离线功能可用。
+- Windows 分享包是轻量启动器，不携带浏览器内核；电脑需要 Edge、Chrome 或其他默认浏览器。由于没有商业代码签名证书，首次运行时 Windows 可能显示来源提醒。
 - iPhone 可从 Safari 使用“分享 → 添加到主屏幕”安装同一网页版本；原生 iOS 测试版仍需在 Mac 上完成签名与 TestFlight 验收。

@@ -49,6 +49,8 @@ function verifyProjectFiles() {
   requireText(appPage, '备注（可选）', '待办备注编辑');
   requireText(appPage, 'nextMilestoneCopy', '计划下一步计算');
   requireText(appPage, '相关完成记录也会一并删除', '待办删除确认');
+  requireText(appPage, 'deleteSelectedPlan', '计划删除操作');
+  requireText(appPage, '关联待办会保留', '计划删除数据保护说明');
   requireText(appPage, '从空白开始', '首次启动引导');
   requireText(appPage, 'createEmptySnapshot', '空白初始数据');
   requireText(appPage, 'CACHE_ASSETS', 'PWA 首屏资源缓存');

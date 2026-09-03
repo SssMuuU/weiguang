@@ -10,6 +10,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { Preferences } from '@capacitor/preferences';
 import { Share } from '@capacitor/share';
 import {
+  deletePlanFromSnapshot,
   emptyRecord,
   everyDay,
   fromDateKey,
@@ -385,6 +386,17 @@ export default function Home() {
     nativeImpact(ImpactStyle.Medium); setToast('计划信息已更新');
   }
   function togglePlanArchive() { if (!selectedPlan) return; const nextArchived = !selectedPlan.archived; updateSnapshot((current) => ({ ...current, plans: current.plans.map((plan) => plan.id === selectedPlan.id ? { ...plan, archived: nextArchived } : plan) })); setSelectedPlanId(null); nativeImpact(ImpactStyle.Medium); setToast(nextArchived ? '计划已归档' : '计划已恢复'); }
+  function deleteSelectedPlan() {
+    if (!selectedPlan) return;
+    const linkedCount = tasks.filter((task) => task.planId === selectedPlan.id).length;
+    const linkedCopy = linkedCount ? `${linkedCount} 项关联待办会保留，但会解除计划关联；` : '';
+    if (!window.confirm(`删除计划“${selectedPlan.title}”吗？${linkedCopy}里程碑将一并删除。此操作无法撤销。`)) return;
+    const planId = selectedPlan.id;
+    updateSnapshot((current) => deletePlanFromSnapshot(current, planId));
+    setSelectedPlanId(null);
+    nativeImpact(ImpactStyle.Medium);
+    setToast(linkedCount ? `计划已删除，${linkedCount} 项待办已保留` : '计划已删除');
+  }
 
   async function saveHabitSettings() {
     if (!habitEditor) return;
@@ -460,7 +472,52 @@ export default function Home() {
 
       {taskEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setTaskEditor(null)}><section className="modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="task-edit-title"><button className="modal-close" onClick={() => setTaskEditor(null)} aria-label="关闭">×</button><span className="section-label">编辑待办</span><h2 id="task-edit-title">调整下一步</h2><form className="task-edit-form" onSubmit={saveTaskEdit}><label>名称<input autoFocus required value={taskEditor.title} onChange={(event) => setTaskEditor({ ...taskEditor, title: event.target.value })} /></label><label>时间（可选）<input type="time" value={taskEditor.time === '未设时间' || taskEditor.time === '今天' ? '' : taskEditor.time} onChange={(event) => setTaskEditor({ ...taskEditor, time: event.target.value })} /></label><label>备注（可选）<textarea value={taskEditor.note} onChange={(event) => setTaskEditor({ ...taskEditor, note: event.target.value })} placeholder="补充地点、准备事项或想法" rows={3} /></label><label>日期<input type="date" required value={taskEditor.date} onChange={(event) => setTaskEditor({ ...taskEditor, date: event.target.value })} /></label><label>关联计划<select value={taskEditor.planId ?? ''} onChange={(event) => setTaskEditor({ ...taskEditor, planId: event.target.value ? Number(event.target.value) : undefined })}><option value="">不关联计划</option>{plans.filter((plan) => !plan.archived || plan.id === taskEditor.planId).map((plan) => <option key={plan.id} value={plan.id}>{plan.title}{plan.archived ? '（已归档）' : ''}</option>)}</select></label><button className="submit-button" type="submit">保存修改</button></form></section></div>}
 
-      {selectedPlan && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setSelectedPlanId(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="plan-detail-title"><button className="modal-close" onClick={() => setSelectedPlanId(null)} aria-label="关闭">×</button><span className="section-label">{selectedPlan.detail} · {selectedPlan.archived ? '已归档' : planDeadlineCopy(selectedPlan.deadline, todayKey)}</span><h2 id="plan-detail-title">{selectedPlan.title}</h2><div className="detail-progress"><div><strong>{planProgress(selectedPlan)}%</strong><span>{selectedPlan.milestones.filter((item) => item.done).length}/{selectedPlan.milestones.length} 已完成</span></div><i><b style={{ width: `${planProgress(selectedPlan)}%` }} /></i></div><div className="next-action"><span>当前下一步</span><strong>{nextMilestoneCopy(selectedPlan.milestones).replace('下一步：', '')}</strong></div><div className="plan-settings"><label className="wide">计划名称<input value={planTitleDraft} onChange={(event) => setPlanTitleDraft(event.target.value)} /></label><label>分类<input value={planDetailDraft} onChange={(event) => setPlanDetailDraft(event.target.value)} placeholder="个人计划" /></label><label>截止日期<input type="date" value={planDeadlineDraft} onChange={(event) => setPlanDeadlineDraft(event.target.value)} /></label><button onClick={savePlanDetails}>保存计划信息</button></div><div className="milestone-list">{selectedPlan.milestones.length === 0 && <p>还没有里程碑，先写下一个清晰的阶段目标。</p>}{selectedPlan.milestones.map((item) => <div key={item.id} className={item.done ? 'done' : ''}><button onClick={() => toggleMilestone(selectedPlan.id, item.id)} aria-label={`${item.done ? '取消完成' : '完成'}里程碑 ${item.title}`}>{item.done ? '✓' : ''}</button><span>{item.title}</span><button className="mini-remove" onClick={() => removeMilestone(selectedPlan.id, item.id)} aria-label={`删除里程碑 ${item.title}`}>×</button></div>)}</div><form className="milestone-form" onSubmit={addMilestone}><input value={milestoneDraft} onChange={(event) => setMilestoneDraft(event.target.value)} placeholder="添加下一个里程碑" aria-label="新里程碑名称" /><button type="submit">添加</button></form><div className="linked-tasks"><span className="section-label">关联待办</span>{tasks.filter((task) => task.planId === selectedPlan.id).length === 0 && <p>创建待办时选择这个计划，它会显示在这里。</p>}{tasks.filter((task) => task.planId === selectedPlan.id).map((task) => { const done = recordFor(task.date).taskDone.includes(task.id); return <div key={task.id}><i className={done ? 'done' : ''}>{done ? '✓' : ''}</i><span>{task.title}</span><small>{new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(fromDateKey(task.date))}</small></div>; })}</div><button className={`archive-plan-button ${selectedPlan.archived ? 'restore' : ''}`} onClick={togglePlanArchive}>{selectedPlan.archived ? '恢复为进行中计划' : '归档这个计划'}</button></section></div>}
+      {selectedPlan && (
+        <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setSelectedPlanId(null)}>
+          <section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="plan-detail-title">
+            <button className="modal-close" onClick={() => setSelectedPlanId(null)} aria-label="关闭">×</button>
+            <span className="section-label">{selectedPlan.detail} · {selectedPlan.archived ? '已归档' : planDeadlineCopy(selectedPlan.deadline, todayKey)}</span>
+            <h2 id="plan-detail-title">{selectedPlan.title}</h2>
+            <div className="detail-progress">
+              <div><strong>{planProgress(selectedPlan)}%</strong><span>{selectedPlan.milestones.filter((item) => item.done).length}/{selectedPlan.milestones.length} 已完成</span></div>
+              <i><b style={{ width: `${planProgress(selectedPlan)}%` }} /></i>
+            </div>
+            <div className="next-action"><span>当前下一步</span><strong>{nextMilestoneCopy(selectedPlan.milestones).replace('下一步：', '')}</strong></div>
+            <div className="plan-settings">
+              <label className="wide">计划名称<input value={planTitleDraft} onChange={(event) => setPlanTitleDraft(event.target.value)} /></label>
+              <label>分类<input value={planDetailDraft} onChange={(event) => setPlanDetailDraft(event.target.value)} placeholder="个人计划" /></label>
+              <label>截止日期<input type="date" value={planDeadlineDraft} onChange={(event) => setPlanDeadlineDraft(event.target.value)} /></label>
+              <button onClick={savePlanDetails}>保存计划信息</button>
+            </div>
+            <div className="milestone-list">
+              {selectedPlan.milestones.length === 0 && <p>还没有里程碑，先写下一个清晰的阶段目标。</p>}
+              {selectedPlan.milestones.map((item) => (
+                <div key={item.id} className={item.done ? 'done' : ''}>
+                  <button onClick={() => toggleMilestone(selectedPlan.id, item.id)} aria-label={`${item.done ? '取消完成' : '完成'}里程碑 ${item.title}`}>{item.done ? '✓' : ''}</button>
+                  <span>{item.title}</span>
+                  <button className="mini-remove" onClick={() => removeMilestone(selectedPlan.id, item.id)} aria-label={`删除里程碑 ${item.title}`}>×</button>
+                </div>
+              ))}
+            </div>
+            <form className="milestone-form" onSubmit={addMilestone}>
+              <input value={milestoneDraft} onChange={(event) => setMilestoneDraft(event.target.value)} placeholder="添加下一个里程碑" aria-label="新里程碑名称" />
+              <button type="submit">添加</button>
+            </form>
+            <div className="linked-tasks">
+              <span className="section-label">关联待办</span>
+              {tasks.filter((task) => task.planId === selectedPlan.id).length === 0 && <p>创建待办时选择这个计划，它会显示在这里。</p>}
+              {tasks.filter((task) => task.planId === selectedPlan.id).map((task) => {
+                const done = recordFor(task.date).taskDone.includes(task.id);
+                return <div key={task.id}><i className={done ? 'done' : ''}>{done ? '✓' : ''}</i><span>{task.title}</span><small>{new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(fromDateKey(task.date))}</small></div>;
+              })}
+            </div>
+            <div className="plan-detail-actions">
+              <button className={`archive-plan-button ${selectedPlan.archived ? 'restore' : ''}`} onClick={togglePlanArchive}>{selectedPlan.archived ? '恢复计划' : '归档计划'}</button>
+              <button className="delete-plan-button" onClick={deleteSelectedPlan}>删除计划</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title || '未命名习惯'}</h2><div className="editor-row habit-identity"><label>名称<input autoFocus value={habitEditor.title} onChange={(event) => setHabitEditor({ ...habitEditor, title: event.target.value })} /></label><label>图标字<input maxLength={2} value={habitEditor.icon} onChange={(event) => setHabitEditor({ ...habitEditor, icon: event.target.value })} /></label></div><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button type="button" key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row habit-target-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="1" value={habitEditor.target} onChange={(event) => setHabitEditor({ ...habitEditor, target: Math.max(1, Number(event.target.value) || 1) })} /></label><label>单位<input value={habitEditor.unit} onChange={(event) => setHabitEditor({ ...habitEditor, unit: event.target.value })} placeholder="次" /></label></div><button type="button" className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={() => void saveHabitSettings()}>保存设置</button><button type="button" className="delete-habit-button" onClick={() => void deleteHabit()}>删除习惯及历史记录</button></section></div>}
 

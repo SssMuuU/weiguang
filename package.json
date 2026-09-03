@@ -15,6 +15,7 @@
     "ios:preflight": "node scripts/ios-preflight.mjs",
     "ios:handoff": "node scripts/ios-handoff.mjs",
     "ios:open": "cap open ios",
+    "windows:package": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-package.ps1",
     "start": "vinext start",
     "test": "node --experimental-strip-types --test tests/weiguang-core.test.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern mobile-dist --ignore-pattern ios/App/App/public --ignore-pattern .npm-cache",
