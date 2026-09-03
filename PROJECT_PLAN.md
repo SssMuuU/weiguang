@@ -179,6 +179,7 @@ iOS 演进建议：
 - [x] 正式站点公开访问，无需登录即可安装使用
 - [x] Windows 一键生成带 SHA-256 的 Mac/iOS 交接包
 - [x] App Store 非豁免加密声明与 `arm64` 设备能力预检
+- [x] 公开隐私政策页、支持页及 App Store 正式网址
 - [ ] TestFlight 内测
 
 Windows 安装说明见 `WINDOWS_SETUP.md`，iOS 交接说明见 `IOS_SETUP.md`。当前开发机为 Windows，已完成可安装 PWA 与可在此环境验证的静态构建、原生工程生成、插件同步和资源生成；Xcode 编译、签名、通知真机授权与 TestFlight 上传必须在 Mac 上完成。

@@ -55,10 +55,15 @@ function verifyProjectFiles() {
   const privacyPolicy = read('PRIVACY_POLICY.md');
   requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');
   requireText(privacyPolicy, '不会把这些内容上传到微光服务器', '隐私说明');
+  requireText(privacyPolicy, 'chatgpt.site/privacy', '公开隐私政策地址');
+  requireFile('app/privacy/page.tsx');
+  requireFile('app/support/page.tsx');
 
   const storeMetadata = read('APP_STORE_METADATA.md');
   requireText(storeMetadata, 'com.weiguang.habits', 'App Store 发布资料');
   requireText(storeMetadata, '版本：`0.1.0`', 'App Store 发布资料');
+  requireText(storeMetadata, 'chatgpt.site/support', 'App Store 支持网址');
+  requireText(storeMetadata, 'chatgpt.site/privacy', 'App Store 隐私政策网址');
 
   const project = read('ios/App/App.xcodeproj/project.pbxproj');
   requireText(project, 'MARKETING_VERSION = 0.1.0;', 'Xcode 版本设置');

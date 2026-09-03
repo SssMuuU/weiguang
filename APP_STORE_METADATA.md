@@ -11,8 +11,8 @@
 - 副标题：把每一点行动，慢慢变成生活
 - 关键词：计划,习惯,待办,目标,打卡,日程,复盘,专注,效率
 - 支持邮箱：`[待填写]`
-- 支持网址：`[待填写]`
-- 隐私政策网址：`[待填写；内容以 PRIVACY_POLICY.md 为准]`
+- 支持网址：`https://weiguang-plan-habits.workspace-192140.chatgpt.site/support`
+- 隐私政策网址：`https://weiguang-plan-habits.workspace-192140.chatgpt.site/privacy`
 
 ## 简短描述
 
@@ -47,7 +47,7 @@
 
 ## 仍需人工准备
 
-- 支持邮箱、支持网页和已公开托管的隐私政策网址。
+- 支持邮箱。
 - iPhone 6.9 英寸和 6.5 英寸截图；如支持 iPad，再补齐 iPad 截图。
 - App Store Connect App 记录、价格与销售范围。
 - 最终上传前确认二进制仍只使用系统或其他豁免加密；当前 `Info.plist` 已将 `ITSAppUsesNonExemptEncryption` 设为 `false`。
