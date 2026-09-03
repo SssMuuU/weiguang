@@ -5,6 +5,8 @@ $outputDirectory = Join-Path $projectRoot 'outputs'
 $version = '0.1.0'
 $archivePath = Join-Path $outputDirectory "weiguang-windows-$version.zip"
 $checksumPath = Join-Path $outputDirectory "weiguang-windows-$version.sha256.txt"
+$webArchivePath = Join-Path $outputDirectory "weiguang-web-static-$version.zip"
+$webChecksumPath = Join-Path $outputDirectory "weiguang-web-static-$version.sha256.txt"
 $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
 $stageDirectory = [System.IO.Path]::GetFullPath((Join-Path $tempRoot ("weiguang-windows-" + [guid]::NewGuid().ToString('N'))))
 $safeTempPrefix = $tempRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
@@ -17,11 +19,26 @@ New-Item -ItemType Directory -Path $stageDirectory | Out-Null
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 
 try {
+  Push-Location $projectRoot
+  try {
+    & npm.cmd run mobile:build
+    if ($LASTEXITCODE -ne 0) { throw '微光前端构建失败。' }
+  } finally {
+    Pop-Location
+  }
+
   $sourcePath = Join-Path $projectRoot 'windows\WeiguangLauncher.cs'
   $readmePath = Join-Path $projectRoot 'windows\WINDOWS_PACKAGE_README.txt'
   $pngPath = Join-Path $projectRoot 'public\icon-1024.png'
   $iconPath = Join-Path $stageDirectory 'weiguang.ico'
   $exePath = Join-Path $stageDirectory '微光.exe'
+  $appDirectory = Join-Path $stageDirectory 'app'
+
+  New-Item -ItemType Directory -Path $appDirectory | Out-Null
+  Copy-Item -Path (Join-Path $projectRoot 'mobile-dist\*') -Destination $appDirectory -Recurse -Force
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'public\sw.js') -Destination $appDirectory -Force
+  Copy-Item -LiteralPath (Join-Path $projectRoot 'public\manifest.webmanifest') -Destination $appDirectory -Force
+  Copy-Item -LiteralPath $pngPath -Destination $appDirectory -Force
 
   Add-Type -AssemblyName System.Drawing
   $sourceImage = [System.Drawing.Image]::FromFile($pngPath)
@@ -83,25 +100,37 @@ try {
 
   & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll "/win32icon:$iconPath" "/out:$exePath" $sourcePath
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
-  $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--check' -WindowStyle Hidden -Wait -PassThru
-  if ($checkProcess.ExitCode -ne 0) { throw '未找到可供微光启动器使用的 Edge 或 Chrome。' }
+  Remove-Item -LiteralPath $iconPath -Force
+  $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
+  if ($checkProcess.ExitCode -ne 0) { throw "微光 Windows 离线包自检失败，退出码：$($checkProcess.ExitCode)" }
 
   Copy-Item -LiteralPath $readmePath -Destination (Join-Path $stageDirectory '使用说明.txt')
   if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
   if (Test-Path -LiteralPath $checksumPath) { Remove-Item -LiteralPath $checksumPath -Force }
-  Compress-Archive -LiteralPath (Join-Path $stageDirectory '微光.exe'), (Join-Path $stageDirectory '使用说明.txt') -DestinationPath $archivePath -CompressionLevel Optimal
+  if (Test-Path -LiteralPath $webArchivePath) { Remove-Item -LiteralPath $webArchivePath -Force }
+  if (Test-Path -LiteralPath $webChecksumPath) { Remove-Item -LiteralPath $webChecksumPath -Force }
+  Compress-Archive -Path (Join-Path $stageDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal
+  Compress-Archive -Path (Join-Path $appDirectory '*') -DestinationPath $webArchivePath -CompressionLevel Optimal
 
-  $sha256 = [System.Security.Cryptography.SHA256]::Create()
-  $archiveStream = [System.IO.File]::OpenRead($archivePath)
-  try {
-    $hash = ([System.BitConverter]::ToString($sha256.ComputeHash($archiveStream))).Replace('-', '').ToLowerInvariant()
-  } finally {
-    $archiveStream.Dispose()
-    $sha256.Dispose()
+  function Write-Checksum([string]$Path, [string]$ChecksumFile) {
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $archiveStream = [System.IO.File]::OpenRead($Path)
+    try {
+      $hash = ([System.BitConverter]::ToString($sha256.ComputeHash($archiveStream))).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $archiveStream.Dispose()
+      $sha256.Dispose()
+    }
+    [System.IO.File]::WriteAllText($ChecksumFile, "$hash  $([System.IO.Path]::GetFileName($Path))`r`n", [System.Text.UTF8Encoding]::new($false))
+    return $hash
   }
-  [System.IO.File]::WriteAllText($checksumPath, "$hash  $([System.IO.Path]::GetFileName($archivePath))`r`n", [System.Text.UTF8Encoding]::new($false))
+
+  $hash = Write-Checksum $archivePath $checksumPath
+  $webHash = Write-Checksum $webArchivePath $webChecksumPath
   Write-Output "Windows 分享包已生成：$archivePath"
   Write-Output "SHA-256：$hash"
+  Write-Output "国内静态托管包已生成：$webArchivePath"
+  Write-Output "SHA-256：$webHash"
 } finally {
   if ($stageDirectory.StartsWith($safeTempPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $stageDirectory)) {
     Remove-Item -LiteralPath $stageDirectory -Recurse -Force

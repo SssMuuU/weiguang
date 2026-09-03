@@ -44,6 +44,7 @@ function requirePng(relativePath, width, height, noAlpha = false) {
 
 function verifyProjectFiles() {
   const appLayout = read('app/layout.tsx');
+  requireText(appLayout, "title: '微光'", '应用名称');
   requireText(appLayout, "'apple-mobile-web-app-capable': 'yes'", 'iPhone Safari 主屏应用声明');
 
   const appPage = read('app/page.tsx');
@@ -56,6 +57,8 @@ function verifyProjectFiles() {
   requireText(appPage, '关联待办会保留', '计划删除数据保护说明');
   requireText(appPage, '从空白开始', '首次启动引导');
   requireText(appPage, 'createEmptySnapshot', '空白初始数据');
+  requireText(appPage, '恢复示例数据', '独立恢复示例数据操作');
+  requireText(appPage, '清空全部数据', '独立清空数据操作');
   requireText(appPage, 'CACHE_ASSETS', 'PWA 首屏资源缓存');
   requireText(appPage, 'handleDialogKey', '弹窗键盘焦点管理');
   requireText(appPage, '打开微光信息', '顶部信息入口');
@@ -64,11 +67,12 @@ function verifyProjectFiles() {
   requireText(appStyles, 'button:focus-visible', '键盘焦点样式');
 
   const serviceWorker = read('public/sw.js');
-  requireText(serviceWorker, "const CACHE = 'weiguang-v5'", 'PWA 缓存版本');
+  requireText(serviceWorker, "const CACHE = 'weiguang-v6'", 'PWA 缓存版本');
   requireText(serviceWorker, "request.mode === 'navigate'", 'PWA 离线导航回退');
   requireText(serviceWorker, 'Offline resource unavailable', 'PWA 缺失资源响应');
 
   const manifest = read('public/manifest.webmanifest');
+  requireText(manifest, '"name": "微光"', 'PWA 应用名称');
   requireText(manifest, '"src": "/icon-1024.png"', 'PWA 应用图标');
   requireText(manifest, '"sizes": "1024x1024"', 'PWA 应用图标尺寸声明');
   requirePng('public/icon-1024.png', 1024, 1024, true);
