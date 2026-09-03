@@ -22,6 +22,9 @@ export const metadata: Metadata = {
     title: '微光',
     statusBarStyle: 'black-translucent',
   },
+  other: {
+    'apple-mobile-web-app-capable': 'yes',
+  },
   icons: {
     icon: '/icon-1024.png',
     apple: '/icon-1024.png',

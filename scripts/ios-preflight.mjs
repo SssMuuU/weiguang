@@ -43,6 +43,9 @@ function requirePng(relativePath, width, height, noAlpha = false) {
 }
 
 function verifyProjectFiles() {
+  const appLayout = read('app/layout.tsx');
+  requireText(appLayout, "'apple-mobile-web-app-capable': 'yes'", 'iPhone Safari 主屏应用声明');
+
   const appPage = read('app/page.tsx');
   requireText(appPage, '无需注册账号；计划、习惯、待办和记录仅保存在当前设备。', '应用内隐私说明');
   requireText(appPage, '微光 0.1.0（1）', '应用内版本信息');
