@@ -18,6 +18,12 @@
 - 已包含 `PrivacyInfo.xcprivacy`，声明 Preferences 的 UserDefaults 与备份文件时间戳使用原因；未声明追踪。
 - 应用内“数据与安装”已提供隐私与版本说明；`PRIVACY_POLICY.md` 和 `APP_STORE_METADATA.md` 保存隐私政策与商店资料草案。
 
+## 从 Windows 生成 Mac 交接包
+
+在项目根目录运行 `npm run ios:handoff`。命令会先执行完整 iOS 预检，确认工作区没有未提交改动，再从当前 Git 提交生成 `outputs/weiguang-ios-0.1.0-build1-source.zip` 和对应的 SHA-256 校验文件。压缩包不包含依赖缓存，但包含 iOS 工程、应用源码、锁文件、图标、启动页、隐私资料和本交接说明。
+
+把 ZIP 复制到 Mac 后解压，再按下节运行 `npm ci`、`npm run ios:preflight` 和 `npm run ios:open`。如需确认文件在传输中未损坏，可在 Mac 终端运行 `shasum -a 256 weiguang-ios-0.1.0-build1-source.zip`，与校验文件中的值比较。
+
 ## 首次在 Mac 上运行
 
 准备 macOS、Node.js 22 或更高版本、Xcode 26 或更高版本及 Xcode Command Line Tools。仓库拉取完成后，在项目根目录依次运行：
