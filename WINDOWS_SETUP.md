@@ -2,6 +2,8 @@
 
 Windows 首个可用版本采用 PWA：安装后会出现在开始菜单和任务栏中，以独立窗口运行，并继续使用本机存储。它与当前网页版本功能一致，不需要额外账号体系；计划、习惯、待办和记录不会上传到微光服务器。
 
+正式地址：[打开微光](https://weiguang-plan-habits.workspace-192140.chatgpt.site)。站点已开放免登录访问。
+
 ## 安装
 
 1. 使用 Microsoft Edge 或 Google Chrome 打开微光正式地址。
