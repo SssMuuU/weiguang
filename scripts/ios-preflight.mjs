@@ -70,6 +70,8 @@ function verifyProjectFiles() {
   requireText(info, '<string>微光</string>', 'App 显示名称');
   requireText(info, '$(MARKETING_VERSION)', 'Info.plist 版本绑定');
   requireText(info, '$(CURRENT_PROJECT_VERSION)', 'Info.plist 构建号绑定');
+  requireText(info, '<key>ITSAppUsesNonExemptEncryption</key>', 'App Store 加密出口声明');
+  requireText(info, '<string>arm64</string>', 'iOS 64 位设备能力');
 
   const privacy = read('ios/App/App/PrivacyInfo.xcprivacy');
   requireText(privacy, '<false/>', '隐私清单追踪声明');

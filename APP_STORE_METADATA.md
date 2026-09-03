@@ -50,5 +50,5 @@
 - 支持邮箱、支持网页和已公开托管的隐私政策网址。
 - iPhone 6.9 英寸和 6.5 英寸截图；如支持 iPad，再补齐 iPad 截图。
 - App Store Connect App 记录、价格与销售范围。
-- 加密出口合规问卷；根据最终二进制实际能力作答。
+- 最终上传前确认二进制仍只使用系统或其他豁免加密；当前 `Info.plist` 已将 `ITSAppUsesNonExemptEncryption` 设为 `false`。
 - Xcode 签名团队、Archive、Validate 与 Upload。
