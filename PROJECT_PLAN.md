@@ -182,6 +182,7 @@ iOS 演进建议：
 - [x] Windows 单文件安装程序、当前用户安装、桌面与开始菜单快捷方式及卸载入口
 - [x] Windows 安装位置选择与默认路径提示
 - [x] WebView2 原生独立窗口，替代 Edge 应用模式启动
+- [x] Windows Per-Monitor V2 高 DPI 适配，避免系统缩放导致界面模糊
 - [x] Windows 本机版隐藏浏览器/PWA 的二次安装入口
 - [x] 正式站点公开访问，无需登录即可安装使用
 - [x] Windows 一键生成带 SHA-256 的 Mac/iOS 交接包

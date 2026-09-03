@@ -4,6 +4,8 @@ Windows 版本提供单文件安装程序，不依赖 `chatgpt.site`，也不需
 
 安装版携带完整页面资源，启动后仅在本机 `127.0.0.1` 提供内部页面，不向局域网或互联网开放。界面由 Windows WebView2 Runtime 嵌入“微光”自己的原生窗口，不会启动 Edge 浏览器窗口；任务栏、窗口标题和图标均显示为微光。
 
+程序声明为 Per-Monitor V2 DPI 感知，在 125%、150%、200% 等 Windows 显示缩放下由 WebView2 按屏幕实际像素渲染，避免系统先低分辨率绘制再放大造成文字和边缘模糊。
+
 `outputs/weiguang-windows-0.1.0.zip` 继续保留为备用便携版；必须完整解压后运行，不能只复制其中的 exe。`npm run windows:package` 会同时生成安装程序、便携包和各自的 SHA-256 校验文件。
 
 ## 数据与升级

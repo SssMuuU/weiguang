@@ -72,6 +72,8 @@ function verifyProjectFiles() {
   requireText(windowsLauncher, 'Application.Run(new WeiguangWindow', 'Windows 独立应用窗口');
   const windowsInstaller = read('windows/WeiguangInstaller.cs');
   requireText(windowsInstaller, 'FolderBrowserDialog', 'Windows 安装位置选择');
+  const windowsManifest = read('windows/weiguang.manifest');
+  requireText(windowsManifest, 'PerMonitorV2,PerMonitor', 'Windows 高 DPI 清晰渲染声明');
 
   const serviceWorker = read('public/sw.js');
   requireText(serviceWorker, "const CACHE = 'weiguang-v6'", 'PWA 缓存版本');

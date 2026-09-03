@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -25,6 +26,13 @@ internal static class WeiguangLauncher
     private static TcpListener listener;
     private static volatile bool serverRunning;
 
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetThreadDpiAwarenessContext();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AreDpiAwarenessContextsEqual(IntPtr first, IntPtr second);
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -32,6 +40,7 @@ internal static class WeiguangLauncher
         {
             if (args.Length > 0 && args[0] == "--check") return CheckPackage();
             if (args.Length > 0 && args[0] == "--self-test") return SelfTest();
+            if (args.Length > 0 && args[0] == "--dpi-check") return IsPerMonitorV2Aware() ? 0 : 6;
 
             int check = CheckPackage();
             if (check != 0)
@@ -87,6 +96,18 @@ internal static class WeiguangLauncher
         catch
         {
             return 2;
+        }
+    }
+
+    private static bool IsPerMonitorV2Aware()
+    {
+        try
+        {
+            return AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(), new IntPtr(-4));
+        }
+        catch
+        {
+            return false;
         }
     }
 

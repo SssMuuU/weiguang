@@ -31,6 +31,7 @@ try {
 
   $sourcePath = Join-Path $projectRoot 'windows\WeiguangLauncher.cs'
   $installerSourcePath = Join-Path $projectRoot 'windows\WeiguangInstaller.cs'
+  $manifestPath = Join-Path $projectRoot 'windows\weiguang.manifest'
   $readmePath = Join-Path $projectRoot 'windows\WINDOWS_PACKAGE_README.txt'
   $pngPath = Join-Path $projectRoot 'public\icon-1024.png'
   $exePath = Join-Path $stageDirectory '微光.exe'
@@ -120,10 +121,12 @@ try {
   $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
   if (-not $compiler) { throw '未找到 Windows 自带的 C# 编译器。' }
 
-  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/out:$exePath" $sourcePath
+  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$exePath" $sourcePath
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
   $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($checkProcess.ExitCode -ne 0) { throw "微光 Windows 离线包自检失败，退出码：$($checkProcess.ExitCode)" }
+  $dpiCheckProcess = Start-Process -FilePath $exePath -ArgumentList '--dpi-check' -WindowStyle Hidden -Wait -PassThru
+  if ($dpiCheckProcess.ExitCode -ne 0) { throw "微光 Windows 高 DPI 自检失败，退出码：$($dpiCheckProcess.ExitCode)" }
 
   Copy-Item -LiteralPath $readmePath -Destination (Join-Path $stageDirectory '使用说明.txt')
   if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
@@ -132,7 +135,7 @@ try {
   if (Test-Path -LiteralPath $installerChecksumPath) { Remove-Item -LiteralPath $installerChecksumPath -Force }
   Compress-Archive -Path (Join-Path $stageDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal
 
-  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$archivePath,WeiguangPayload.zip" "/win32icon:$iconPath" "/out:$installerPath" $installerSourcePath
+  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$archivePath,WeiguangPayload.zip" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$installerPath" $installerSourcePath
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installerPath)) { throw '微光 Windows 安装程序编译失败。' }
   $installerCheck = Start-Process -FilePath $installerPath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($installerCheck.ExitCode -ne 0) { throw "微光 Windows 安装程序自检失败，退出码：$($installerCheck.ExitCode)" }
