@@ -21,11 +21,6 @@ internal static class WeiguangInstaller
     private const string PayloadName = "WeiguangPayload.zip";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Weiguang";
     private const int MoveFileDelayUntilReboot = 0x4;
-    private static readonly string InstallDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Programs",
-        "Weiguang");
-
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);
 
@@ -74,6 +69,19 @@ internal static class WeiguangInstaller
             MessageBoxIcon.Information);
         if (answer != DialogResult.OK) return 0;
 
+        string installDirectory;
+        using (FolderBrowserDialog locationDialog = new FolderBrowserDialog())
+        {
+            locationDialog.Description = "选择安装位置；微光会在所选位置创建“微光”文件夹。";
+            locationDialog.ShowNewFolderButton = true;
+            locationDialog.SelectedPath = GetDefaultInstallParent();
+            if (locationDialog.ShowDialog() != DialogResult.OK) return 0;
+            string selected = Path.GetFullPath(locationDialog.SelectedPath);
+            installDirectory = string.Equals(Path.GetFileName(selected.TrimEnd(Path.DirectorySeparatorChar)), "微光", StringComparison.OrdinalIgnoreCase)
+                ? selected
+                : Path.Combine(selected, "微光");
+        }
+
         string tempDirectory = Path.Combine(Path.GetTempPath(), "weiguang-install-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -82,16 +90,16 @@ internal static class WeiguangInstaller
             string stagedLauncher = Path.Combine(tempDirectory, "微光.exe");
             if (!File.Exists(stagedLauncher)) throw new InvalidDataException("安装文件不完整。请重新下载安装程序。");
 
-            Directory.CreateDirectory(InstallDirectory);
-            string installedApp = Path.Combine(InstallDirectory, "app");
+            Directory.CreateDirectory(installDirectory);
+            string installedApp = Path.Combine(installDirectory, "app");
             if (Directory.Exists(installedApp)) Directory.Delete(installedApp, true);
-            CopyDirectory(tempDirectory, InstallDirectory);
+            CopyDirectory(tempDirectory, installDirectory);
 
-            string installedLauncher = Path.Combine(InstallDirectory, "微光.exe");
-            string installedUninstaller = Path.Combine(InstallDirectory, "卸载微光.exe");
+            string installedLauncher = Path.Combine(installDirectory, "微光.exe");
+            string installedUninstaller = Path.Combine(installDirectory, "卸载微光.exe");
             File.Copy(Assembly.GetExecutingAssembly().Location, installedUninstaller, true);
-            CreateShortcuts(installedLauncher);
-            RegisterUninstaller(installedLauncher, installedUninstaller);
+            CreateShortcuts(installedLauncher, installDirectory);
+            RegisterUninstaller(installedLauncher, installedUninstaller, installDirectory);
 
             DialogResult launch = MessageBox.Show(
                 "微光安装完成。\n\n现在打开微光吗？",
@@ -121,7 +129,7 @@ internal static class WeiguangInstaller
             string index = Path.Combine(tempDirectory, "app", "index.html");
             if (!File.Exists(launcher) || !File.Exists(index)) return 5;
             string shortcut = Path.Combine(tempDirectory, "微光.lnk");
-            CreateShortcut(shortcut, launcher);
+            CreateShortcut(shortcut, launcher, tempDirectory);
             return File.Exists(shortcut) ? 0 : 6;
         }
         finally
@@ -144,6 +152,22 @@ internal static class WeiguangInstaller
         {
             return false;
         }
+    }
+
+    private static string GetDefaultInstallParent()
+    {
+        using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UninstallKey))
+        {
+            string existing = key == null ? null : key.GetValue("InstallLocation") as string;
+            if (!string.IsNullOrEmpty(existing))
+            {
+                DirectoryInfo parent = Directory.GetParent(existing.TrimEnd(Path.DirectorySeparatorChar));
+                if (parent != null && parent.Exists) return parent.FullName;
+            }
+        }
+        string defaultParent = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
+        Directory.CreateDirectory(defaultParent);
+        return defaultParent;
     }
 
     private static void ExtractPayload(string destination)
@@ -184,22 +208,22 @@ internal static class WeiguangInstaller
         }
     }
 
-    private static void CreateShortcuts(string launcher)
+    private static void CreateShortcuts(string launcher, string installDirectory)
     {
         string startMenuDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "微光");
         Directory.CreateDirectory(startMenuDirectory);
-        CreateShortcut(Path.Combine(startMenuDirectory, "微光.lnk"), launcher);
-        CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "微光.lnk"), launcher);
+        CreateShortcut(Path.Combine(startMenuDirectory, "微光.lnk"), launcher, installDirectory);
+        CreateShortcut(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "微光.lnk"), launcher, installDirectory);
     }
 
-    private static void CreateShortcut(string shortcutPath, string launcher)
+    private static void CreateShortcut(string shortcutPath, string launcher, string workingDirectory)
     {
         Type shellType = Type.GetTypeFromProgID("WScript.Shell");
         object shell = Activator.CreateInstance(shellType);
         object shortcut = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { shortcutPath });
         Type shortcutType = shortcut.GetType();
         shortcutType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, shortcut, new object[] { launcher });
-        shortcutType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { InstallDirectory });
+        shortcutType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, shortcut, new object[] { workingDirectory });
         shortcutType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, shortcut, new object[] { launcher + ",0" });
         shortcutType.InvokeMember("Description", BindingFlags.SetProperty, null, shortcut, new object[] { "打开微光" });
         shortcutType.InvokeMember("Save", BindingFlags.InvokeMethod, null, shortcut, null);
@@ -207,7 +231,7 @@ internal static class WeiguangInstaller
         Marshal.FinalReleaseComObject(shell);
     }
 
-    private static void RegisterUninstaller(string launcher, string uninstaller)
+    private static void RegisterUninstaller(string launcher, string uninstaller, string installDirectory)
     {
         using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey))
         {
@@ -215,7 +239,7 @@ internal static class WeiguangInstaller
             key.SetValue("DisplayVersion", "0.1.0");
             key.SetValue("Publisher", "微光");
             key.SetValue("DisplayIcon", launcher);
-            key.SetValue("InstallLocation", InstallDirectory);
+            key.SetValue("InstallLocation", installDirectory);
             key.SetValue("UninstallString", "\"" + uninstaller + "\" --uninstall");
             key.SetValue("NoModify", 1, RegistryValueKind.DWord);
             key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
@@ -224,6 +248,7 @@ internal static class WeiguangInstaller
 
     private static int Uninstall()
     {
+        string installDirectory = Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
         DialogResult answer = MessageBox.Show(
             "确定卸载微光吗？\n\n你的计划和习惯数据会保留，重新安装后仍可继续使用。",
             "卸载微光",
@@ -241,7 +266,7 @@ internal static class WeiguangInstaller
         Process.Start(new ProcessStartInfo
         {
             FileName = helper,
-            Arguments = "--remove \"" + InstallDirectory + "\"",
+            Arguments = "--remove \"" + installDirectory + "\"",
             UseShellExecute = false,
             CreateNoWindow = true,
         });
@@ -252,9 +277,10 @@ internal static class WeiguangInstaller
     private static int RemoveInstalledFiles(string directory)
     {
         Thread.Sleep(1000);
-        string expected = Path.GetFullPath(InstallDirectory);
         string requested = Path.GetFullPath(directory);
-        if (!string.Equals(expected, requested, StringComparison.OrdinalIgnoreCase)) return 3;
+        string folderName = Path.GetFileName(requested.TrimEnd(Path.DirectorySeparatorChar));
+        if (!string.Equals(folderName, "微光", StringComparison.OrdinalIgnoreCase)) return 3;
+        if (!File.Exists(Path.Combine(requested, "卸载微光.exe"))) return 3;
         if (Directory.Exists(requested)) Directory.Delete(requested, true);
         MoveFileEx(Assembly.GetExecutingAssembly().Location, null, MoveFileDelayUntilReboot);
         return 0;

@@ -67,6 +67,12 @@ function verifyProjectFiles() {
   const appStyles = read('app/globals.css');
   requireText(appStyles, 'button:focus-visible', '键盘焦点样式');
 
+  const windowsLauncher = read('windows/WeiguangLauncher.cs');
+  requireText(windowsLauncher, 'new WebView2', 'Windows 原生 WebView2 窗口');
+  requireText(windowsLauncher, 'Application.Run(new WeiguangWindow', 'Windows 独立应用窗口');
+  const windowsInstaller = read('windows/WeiguangInstaller.cs');
+  requireText(windowsInstaller, 'FolderBrowserDialog', 'Windows 安装位置选择');
+
   const serviceWorker = read('public/sw.js');
   requireText(serviceWorker, "const CACHE = 'weiguang-v6'", 'PWA 缓存版本');
   requireText(serviceWorker, "request.mode === 'navigate'", 'PWA 离线导航回退');

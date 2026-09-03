@@ -102,7 +102,7 @@
 
 ## 4. 技术路线
 
-当前技术：React + TypeScript + Vinext，使用响应式 CSS 实现桌面端与手机端共用界面。应用可在浏览器运行，也可通过携带完整页面资源的 Windows 离线包直接使用；离线包不依赖公开站点。
+当前技术：React + TypeScript + Vinext，使用响应式 CSS 实现桌面端与手机端共用界面。应用可在浏览器运行，也可通过携带完整页面资源的 Windows 离线包直接使用；Windows 版用 WebView2 嵌入原生“微光”窗口，不再拉起 Edge 浏览器窗口，也不依赖公开站点。
 
 iOS 测试版已采用 Capacitor 8：`mobile/` 提供静态入口，`mobile-dist/` 是随 App 安装的本地资源，`ios/` 保存 Xcode 工程。iOS 版不加载远程网页，断网也可打开；数据通过 Capacitor Preferences 保存在设备，本地通知负责习惯提醒，Haptics 提供完成反馈。应用从后台恢复时会自动处理跨日刷新，并在已有通知授权下重新校准本地提醒。`npm run ios:preflight` 会在所有平台核对发布资源、隐私资料与配置，并在 macOS 上追加无签名模拟器编译。
 
@@ -180,6 +180,8 @@ iOS 演进建议：
 - [x] Windows 独立窗口运行与本机离线资源服务
 - [x] 不依赖 `chatgpt.site` 的 Windows 便携包、品牌启动器与 SHA-256 校验文件
 - [x] Windows 单文件安装程序、当前用户安装、桌面与开始菜单快捷方式及卸载入口
+- [x] Windows 安装位置选择与默认路径提示
+- [x] WebView2 原生独立窗口，替代 Edge 应用模式启动
 - [x] Windows 本机版隐藏浏览器/PWA 的二次安装入口
 - [x] 正式站点公开访问，无需登录即可安装使用
 - [x] Windows 一键生成带 SHA-256 的 Mac/iOS 交接包

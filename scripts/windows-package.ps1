@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $outputDirectory = Join-Path $projectRoot 'outputs'
 $version = '0.1.0'
+$webViewVersion = '1.0.4191.47'
 $archivePath = Join-Path $outputDirectory "weiguang-windows-$version.zip"
 $checksumPath = Join-Path $outputDirectory "weiguang-windows-$version.sha256.txt"
 $installerPath = Join-Path $outputDirectory "微光安装程序-$version.exe"
@@ -34,12 +35,32 @@ try {
   $pngPath = Join-Path $projectRoot 'public\icon-1024.png'
   $exePath = Join-Path $stageDirectory '微光.exe'
   $appDirectory = Join-Path $stageDirectory 'app'
+  $dependencyBase = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'work\webview2'))
+  $webViewRoot = [System.IO.Path]::GetFullPath((Join-Path $dependencyBase $webViewVersion))
+  $webViewPackagePath = Join-Path $webViewRoot "Microsoft.Web.WebView2.$webViewVersion.nupkg"
+  $webViewPackageRoot = Join-Path $webViewRoot 'package'
+  $webViewCore = Join-Path $webViewPackageRoot 'lib\net462\Microsoft.Web.WebView2.Core.dll'
+  $webViewWinForms = Join-Path $webViewPackageRoot 'lib\net462\Microsoft.Web.WebView2.WinForms.dll'
+  $webViewLoader = Join-Path $webViewPackageRoot 'runtimes\win-x64\native\WebView2Loader.dll'
+
+  if (-not (Test-Path -LiteralPath $webViewCore) -or -not (Test-Path -LiteralPath $webViewWinForms) -or -not (Test-Path -LiteralPath $webViewLoader)) {
+    New-Item -ItemType Directory -Path $webViewRoot -Force | Out-Null
+    Invoke-WebRequest -UseBasicParsing "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/$webViewVersion" -OutFile $webViewPackagePath
+    $safeDependencyPrefix = $dependencyBase.TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    if (-not $webViewPackageRoot.StartsWith($safeDependencyPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'WebView2 依赖目录不安全，已停止。' }
+    if (Test-Path -LiteralPath $webViewPackageRoot) { Remove-Item -LiteralPath $webViewPackageRoot -Recurse -Force }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($webViewPackagePath, $webViewPackageRoot)
+  }
 
   New-Item -ItemType Directory -Path $appDirectory | Out-Null
   Copy-Item -Path (Join-Path $projectRoot 'mobile-dist\*') -Destination $appDirectory -Recurse -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'public\sw.js') -Destination $appDirectory -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'public\manifest.webmanifest') -Destination $appDirectory -Force
   Copy-Item -LiteralPath $pngPath -Destination $appDirectory -Force
+  Copy-Item -LiteralPath $webViewCore -Destination $stageDirectory -Force
+  Copy-Item -LiteralPath $webViewWinForms -Destination $stageDirectory -Force
+  Copy-Item -LiteralPath $webViewLoader -Destination $stageDirectory -Force
 
   Add-Type -AssemblyName System.Drawing
   $sourceImage = [System.Drawing.Image]::FromFile($pngPath)
@@ -99,7 +120,7 @@ try {
   $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
   if (-not $compiler) { throw '未找到 Windows 自带的 C# 编译器。' }
 
-  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll "/win32icon:$iconPath" "/out:$exePath" $sourcePath
+  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/out:$exePath" $sourcePath
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
   $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($checkProcess.ExitCode -ne 0) { throw "微光 Windows 离线包自检失败，退出码：$($checkProcess.ExitCode)" }

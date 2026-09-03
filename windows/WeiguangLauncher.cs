@@ -1,5 +1,5 @@
 using System;
-using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -7,6 +7,8 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
 
 [assembly: AssemblyTitle("微光")]
 [assembly: AssemblyProduct("微光")]
@@ -18,6 +20,7 @@ internal static class WeiguangLauncher
 {
     private const int AppPort = 17895;
     private const string AppUrl = "http://127.0.0.1:17895/";
+    private const string InstanceName = "Local\\WeiguangDesktopApp";
     private static readonly string AppDirectory = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app"));
     private static TcpListener listener;
     private static volatile bool serverRunning;
@@ -27,52 +30,69 @@ internal static class WeiguangLauncher
     {
         try
         {
-            string browser = FindBrowser();
-            if (args.Length > 0 && args[0] == "--check") return CheckPackage(browser);
-            if (args.Length > 0 && args[0] == "--self-test") return SelfTest(browser);
+            if (args.Length > 0 && args[0] == "--check") return CheckPackage();
+            if (args.Length > 0 && args[0] == "--self-test") return SelfTest();
 
-            int check = CheckPackage(browser);
+            int check = CheckPackage();
             if (check != 0)
             {
                 MessageBox.Show(
-                    check == 2 ? "微光需要 Microsoft Edge 或 Google Chrome 才能运行。" : "微光的应用文件不完整，请重新解压安装包。",
+                    check == 2 ? "当前电脑缺少 WebView2 Runtime，请先通过 Windows Update 更新系统。" : "微光的应用文件不完整，请重新安装。",
                     "微光",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
                 return check;
             }
 
-            bool ownsServer = StartServer(AppPort);
-            Process appProcess = OpenApp(browser);
-            if (ownsServer && appProcess != null)
+            bool ownsInstance;
+            using (Mutex instanceMutex = new Mutex(true, InstanceName, out ownsInstance))
             {
-                appProcess.WaitForExit();
+                if (!ownsInstance)
+                {
+                    MessageBox.Show("微光已经打开。", "微光", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 0;
+                }
+                if (!StartServer(AppPort))
+                {
+                    MessageBox.Show("请先关闭旧版微光，再重新打开。", "微光", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return 4;
+                }
+
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new WeiguangWindow(AppUrl));
                 StopServer();
+                GC.KeepAlive(instanceMutex);
             }
             return 0;
         }
         catch (Exception error)
         {
             StopServer();
-            MessageBox.Show(
-                "微光未能启动：" + error.Message,
-                "微光",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
+            MessageBox.Show("微光未能启动：" + error.Message, "微光", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return 1;
         }
     }
 
-    private static int CheckPackage(string browser)
+    private static int CheckPackage()
     {
-        if (browser == null) return 2;
         if (!File.Exists(Path.Combine(AppDirectory, "index.html"))) return 3;
-        return 0;
+        if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Microsoft.Web.WebView2.Core.dll"))) return 3;
+        if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Microsoft.Web.WebView2.WinForms.dll"))) return 3;
+        if (!File.Exists(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WebView2Loader.dll"))) return 3;
+        try
+        {
+            return string.IsNullOrEmpty(CoreWebView2Environment.GetAvailableBrowserVersionString()) ? 2 : 0;
+        }
+        catch
+        {
+            return 2;
+        }
     }
 
-    private static int SelfTest(string browser)
+    private static int SelfTest()
     {
-        int check = CheckPackage(browser);
+        int check = CheckPackage();
         if (check != 0) return check;
         if (!StartServer(0)) return 4;
         try
@@ -161,7 +181,6 @@ internal static class WeiguangLauncher
                 WriteResponse(stream, "403 Forbidden", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("Forbidden"), parts[0] == "HEAD");
                 return;
             }
-
             if (!File.Exists(path) && Path.GetExtension(path).Length == 0) path = Path.Combine(AppDirectory, "index.html");
             if (!File.Exists(path))
             {
@@ -214,42 +233,75 @@ internal static class WeiguangLauncher
             default: return "application/octet-stream";
         }
     }
+}
 
-    private static Process OpenApp(string browser)
-    {
-        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        string profile = Path.Combine(localAppData, "Weiguang", "BrowserData");
-        Directory.CreateDirectory(profile);
-        return Process.Start(new ProcessStartInfo
-        {
-            FileName = browser,
-            Arguments = "--app=" + AppUrl + " --user-data-dir=\"" + profile + "\" --no-first-run --start-maximized",
-            UseShellExecute = false,
-        });
-    }
+internal sealed class WeiguangWindow : Form
+{
+    private readonly string appUrl;
+    private readonly WebView2 webView;
+    private readonly Label loadingLabel;
 
-    private static string FindBrowser()
+    internal WeiguangWindow(string url)
     {
-        foreach (string browser in BrowserCandidates())
-        {
-            if (File.Exists(browser)) return browser;
-        }
-        return null;
-    }
+        appUrl = url;
+        Text = "微光";
+        StartPosition = FormStartPosition.CenterScreen;
+        MinimumSize = new Size(760, 560);
+        Size = new Size(1180, 820);
+        BackColor = Color.FromArgb(245, 243, 251);
+        AutoScaleMode = AutoScaleMode.Dpi;
+        try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch { }
 
-    private static string[] BrowserCandidates()
-    {
-        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return new[]
+        webView = new WebView2
         {
-            Path.Combine(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
-            Path.Combine(programFiles, "Microsoft", "Edge", "Application", "msedge.exe"),
-            Path.Combine(localAppData, "Microsoft", "Edge", "Application", "msedge.exe"),
-            Path.Combine(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
-            Path.Combine(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
-            Path.Combine(localAppData, "Google", "Chrome", "Application", "chrome.exe"),
+            Dock = DockStyle.Fill,
+            DefaultBackgroundColor = Color.FromArgb(245, 243, 251),
         };
+        loadingLabel = new Label
+        {
+            Dock = DockStyle.Fill,
+            Text = "微光正在打开…",
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Microsoft YaHei UI", 12F),
+            ForeColor = Color.FromArgb(103, 94, 132),
+            BackColor = Color.FromArgb(245, 243, 251),
+        };
+        Controls.Add(webView);
+        Controls.Add(loadingLabel);
+        Shown += OnShown;
+    }
+
+    private async void OnShown(object sender, EventArgs eventArgs)
+    {
+        try
+        {
+            string userData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Weiguang", "BrowserData");
+            Directory.CreateDirectory(userData);
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(null, userData);
+            await webView.EnsureCoreWebView2Async(environment);
+            webView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
+            webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+            webView.Source = new Uri(appUrl);
+            loadingLabel.Visible = false;
+        }
+        catch (Exception error)
+        {
+            loadingLabel.Text = "微光未能打开\n\n" + error.Message;
+        }
+    }
+
+    private void OnNavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs args)
+    {
+        Uri target;
+        if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out target)) return;
+        if (target.Host == "127.0.0.1" && target.Port == 17895) return;
+        args.Cancel = true;
+    }
+
+    private void OnNewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs args)
+    {
+        args.Handled = true;
     }
 }
