@@ -183,6 +183,7 @@ iOS 演进建议：
 - [x] 首版收敛为 iPhone-only，并完成商店截图内容与尺寸规范
 - [x] 核心日期、数据迁移、计划进度与待办改期规则自动回归测试
 - [x] iOS Bundle 默认语言与商店首发语言统一为简体中文
+- [x] PWA 与 iOS 图标统一为无透明通道的标准 1024 × 1024 资源，并加入自动尺寸校验
 - [ ] TestFlight 内测
 
 Windows 安装说明见 `WINDOWS_SETUP.md`，iOS 交接说明见 `IOS_SETUP.md`。当前开发机为 Windows，已完成可安装 PWA 与可在此环境验证的静态构建、原生工程生成、插件同步和资源生成；Xcode 编译、签名、通知真机授权与 TestFlight 上传必须在 Mac 上完成。

@@ -31,6 +31,17 @@ function requireFile(relativePath) {
   readFileSync(join(root, relativePath));
 }
 
+function requirePng(relativePath, width, height, noAlpha = false) {
+  const image = readFileSync(join(root, relativePath));
+  const signature = image.subarray(0, 8).toString('hex');
+  if (signature !== '89504e470d0a1a0a') throw new Error(`${relativePath} 不是有效 PNG`);
+  const actualWidth = image.readUInt32BE(16);
+  const actualHeight = image.readUInt32BE(20);
+  const colorType = image[25];
+  if (actualWidth !== width || actualHeight !== height) throw new Error(`${relativePath} 尺寸必须为 ${width} × ${height}，当前为 ${actualWidth} × ${actualHeight}`);
+  if (noAlpha && (colorType === 4 || colorType === 6)) throw new Error(`${relativePath} 不得包含透明通道`);
+}
+
 function verifyProjectFiles() {
   const appPage = read('app/page.tsx');
   requireText(appPage, '无需注册账号；计划、习惯、待办和记录仅保存在当前设备。', '应用内隐私说明');
@@ -51,6 +62,11 @@ function verifyProjectFiles() {
   requireText(serviceWorker, "const CACHE = 'weiguang-v5'", 'PWA 缓存版本');
   requireText(serviceWorker, "request.mode === 'navigate'", 'PWA 离线导航回退');
   requireText(serviceWorker, 'Offline resource unavailable', 'PWA 缺失资源响应');
+
+  const manifest = read('public/manifest.webmanifest');
+  requireText(manifest, '"src": "/icon-1024.png"', 'PWA 应用图标');
+  requireText(manifest, '"sizes": "1024x1024"', 'PWA 应用图标尺寸声明');
+  requirePng('public/icon-1024.png', 1024, 1024, true);
 
   const privacyPolicy = read('PRIVACY_POLICY.md');
   requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');
@@ -91,8 +107,8 @@ function verifyProjectFiles() {
   const swiftPackage = read('ios/App/CapApp-SPM/Package.swift');
   ['CapacitorApp', 'CapacitorFilesystem', 'CapacitorHaptics', 'CapacitorLocalNotifications', 'CapacitorPreferences', 'CapacitorShare'].forEach((plugin) => requireText(swiftPackage, plugin, '原生插件清单'));
 
-  requireFile('ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png');
-  requireFile('ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany.png');
+  requirePng('ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png', 1024, 1024, true);
+  requirePng('ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany.png', 2732, 2732, true);
   requireFile('ios/App/App/public/index.html');
 }
 
