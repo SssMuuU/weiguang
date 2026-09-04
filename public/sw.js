@@ -1,5 +1,5 @@
-const CACHE = 'weiguang-v6';
-const SHELL = ['/', '/manifest.webmanifest', '/icon-1024.png'];
+const CACHE = 'weiguang-v7';
+const SHELL = ['/', '/manifest.webmanifest', '/icon-1024.png', '/companion-xiaoguang.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));

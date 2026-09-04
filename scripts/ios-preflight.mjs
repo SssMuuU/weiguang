@@ -42,6 +42,14 @@ function requirePng(relativePath, width, height, noAlpha = false) {
   if (noAlpha && (colorType === 4 || colorType === 6)) throw new Error(`${relativePath} 不得包含透明通道`);
 }
 
+function requireTransparentPng(relativePath) {
+  const image = readFileSync(join(root, relativePath));
+  const signature = image.subarray(0, 8).toString('hex');
+  const colorType = image[25];
+  if (signature !== '89504e470d0a1a0a') throw new Error(`${relativePath} 不是有效 PNG`);
+  if (colorType !== 4 && colorType !== 6) throw new Error(`${relativePath} 必须包含透明通道`);
+}
+
 function verifyProjectFiles() {
   const appLayout = read('app/layout.tsx');
   requireText(appLayout, "title: '微光'", '应用名称');
@@ -76,7 +84,8 @@ function verifyProjectFiles() {
   requireText(windowsManifest, 'PerMonitorV2,PerMonitor', 'Windows 高 DPI 清晰渲染声明');
 
   const serviceWorker = read('public/sw.js');
-  requireText(serviceWorker, "const CACHE = 'weiguang-v6'", 'PWA 缓存版本');
+  requireText(serviceWorker, "const CACHE = 'weiguang-v7'", 'PWA 缓存版本');
+  requireText(serviceWorker, "'/companion-xiaoguang.png'", '小光离线缓存');
   requireText(serviceWorker, "request.mode === 'navigate'", 'PWA 离线导航回退');
   requireText(serviceWorker, 'Offline resource unavailable', 'PWA 缺失资源响应');
 
@@ -85,6 +94,7 @@ function verifyProjectFiles() {
   requireText(manifest, '"src": "/icon-1024.png"', 'PWA 应用图标');
   requireText(manifest, '"sizes": "1024x1024"', 'PWA 应用图标尺寸声明');
   requirePng('public/icon-1024.png', 1024, 1024, true);
+  requireTransparentPng('public/companion-xiaoguang.png');
 
   const privacyPolicy = read('PRIVACY_POLICY.md');
   requireText(privacyPolicy, '不包含广告、用户分析或跨应用追踪 SDK', '隐私说明');
@@ -128,6 +138,7 @@ function verifyProjectFiles() {
   requirePng('ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png', 1024, 1024, true);
   requirePng('ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany.png', 2732, 2732, true);
   requireFile('ios/App/App/public/index.html');
+  requireFile('ios/App/App/public/companion-xiaoguang.png');
 }
 
 function buildOnMac() {

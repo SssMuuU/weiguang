@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   root: 'mobile',
+  publicDir: '../public',
   base: './',
   css: { postcss: { plugins: [tailwindcss()] } },
   plugins: [react()],

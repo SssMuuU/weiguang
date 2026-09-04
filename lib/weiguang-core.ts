@@ -1,10 +1,13 @@
 export type Milestone = { id: number; title: string; done: boolean };
 export type Task = { id: number; title: string; time: string; note: string; tag: string; date: string; planId?: number };
-export type Habit = { id: number; icon: string; title: string; target: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string };
+export type HabitRevision = { effectiveFrom: string; target: number; step: number; unit: string; days: number[]; paused: boolean };
+export type Habit = { id: number; icon: string; title: string; target: number; step: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string; revisions: HabitRevision[] };
 export type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[]; deadline: string; archived: boolean };
 export type DailyRecord = { taskDone: number[]; habits: Record<string, number> };
 export type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
 export type LocalReadResult = { snapshot: AppSnapshot; firstRun: boolean };
+export type CompanionMood = 'sleepy' | 'waiting' | 'curious' | 'bright' | 'celebrate';
+export type CompanionState = { mood: CompanionMood; message: string };
 
 export const everyDay = [1, 2, 3, 4, 5, 6, 0];
 
@@ -15,9 +18,55 @@ export function fromDateKey(key: string) { if (key === 'today') return new Date(
 export function shiftDate(key: string, amount: number) { const date = fromDateKey(key); date.setDate(date.getDate() + amount); return toDateKey(date); }
 export function getWeekKeys(endKey: string) { return Array.from({ length: 7 }, (_, index) => shiftDate(endKey, index - 6)); }
 export function getMonthKeys(referenceKey: string) { const date = fromDateKey(referenceKey); const total = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate(); return Array.from({ length: total }, (_, index) => toDateKey(new Date(date.getFullYear(), date.getMonth(), index + 1, 12))); }
+export function getMonthToDateKeys(referenceKey: string) { return getMonthKeys(referenceKey).filter((key) => key <= referenceKey); }
 export function getPreviousMonthKeys(referenceKey: string) { const date = fromDateKey(referenceKey); date.setMonth(date.getMonth() - 1, 1); return getMonthKeys(toDateKey(date)); }
+export function getPreviousMonthToDateKeys(referenceKey: string) { return getPreviousMonthKeys(referenceKey).slice(0, getMonthToDateKeys(referenceKey).length); }
 export function shortWeekday(key: string) { return new Intl.DateTimeFormat('zh-CN', { weekday: 'short' }).format(fromDateKey(key)).replace('周', ''); }
 export function emptyRecord(): DailyRecord { return { taskDone: [], habits: {} }; }
+export function recommendedHabitStep(target: number, unit: string) {
+  const safeTarget = Number.isFinite(target) && target > 0 ? target : 1;
+  const normalizedUnit = unit.trim().toLowerCase();
+  if (['次', '杯', '颗', '粒', '片', '组', '遍', '回'].includes(normalizedUnit)) return 1;
+  if (['ml', '毫升'].includes(normalizedUnit)) return safeTarget >= 1000 ? 250 : safeTarget >= 500 ? 100 : safeTarget >= 100 ? 50 : safeTarget >= 20 ? 5 : 1;
+  if (['分钟', '分'].includes(normalizedUnit)) return safeTarget >= 60 ? 15 : safeTarget >= 20 ? 5 : 1;
+  if (['小时', '时'].includes(normalizedUnit)) return safeTarget >= 4 ? 1 : 0.5;
+  if (['步'].includes(normalizedUnit)) return safeTarget >= 5000 ? 1000 : safeTarget >= 1000 ? 500 : safeTarget >= 100 ? 50 : 10;
+  if (safeTarget <= 10) return 1;
+  if (safeTarget <= 30) return 5;
+  if (safeTarget <= 100) return 10;
+  if (safeTarget <= 300) return 25;
+  if (safeTarget <= 1000) return 100;
+  if (safeTarget <= 3000) return 250;
+  return 1000;
+}
+export function sanitizeHabitStep(step: number, target: number, unit: string) {
+  const safeTarget = Number.isFinite(target) && target > 0 ? target : 1;
+  const safeStep = Number.isFinite(step) && step > 0 ? step : recommendedHabitStep(safeTarget, unit);
+  return Math.min(safeTarget, safeStep);
+}
+export function changeHabitValue(current: number, amount: number, target: number) {
+  const safeCurrent = Number.isFinite(current) ? current : 0;
+  const safeTarget = Number.isFinite(target) && target > 0 ? target : 1;
+  return Math.round(Math.max(0, Math.min(safeTarget, safeCurrent + amount)) * 10000) / 10000;
+}
+export function habitRevisionFor(habit: Habit, dateKey: string): HabitRevision {
+  const fallback = { effectiveFrom: '0001-01-01', target: habit.target, step: habit.step, unit: habit.unit, days: habit.days, paused: habit.paused };
+  return habit.revisions.filter((revision) => revision.effectiveFrom <= dateKey).at(-1) || habit.revisions[0] || fallback;
+}
+export function upsertHabitRevision(habit: Habit, effectiveFrom: string): Habit {
+  const revision: HabitRevision = { effectiveFrom, target: habit.target, step: habit.step, unit: habit.unit, days: [...habit.days], paused: habit.paused };
+  const revisions = [...habit.revisions.filter((item) => item.effectiveFrom !== effectiveFrom), revision].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  return { ...habit, revisions };
+}
+export function timeGreeting(hour: number) { return hour < 6 ? '夜深了' : hour < 11 ? '早上好' : hour < 18 ? '下午好' : '晚上好'; }
+export function getCompanionState(progress: number, total: number, hour: number): CompanionState {
+  if (total > 0 && progress >= 100) return { mood: 'celebrate', message: '今天的约定都完成啦。现在可以安心休息了。' };
+  if (total > 0 && progress >= 60) return { mood: 'bright', message: '已经走了很远，我陪你把剩下的慢慢做完。' };
+  if (total > 0 && progress > 0) return { mood: 'curious', message: '第一点微光亮起来了，我一直有看见。' };
+  if (hour < 6 || hour >= 22) return { mood: 'sleepy', message: '夜深啦。没做完也没关系，先好好休息。' };
+  if (total === 0) return { mood: 'waiting', message: '今天没有安排也没关系，我陪你安静待一会儿。' };
+  return { mood: 'waiting', message: '不用着急，我们从最小的一件事开始。' };
+}
 export function stamp(snapshot: Omit<AppSnapshot, 'updatedAt'> | AppSnapshot): AppSnapshot { return { ...snapshot, version: 4, updatedAt: new Date().toISOString() }; }
 export function planProgress(plan: Plan) { return plan.milestones.length ? Math.round((plan.milestones.filter((item) => item.done).length / plan.milestones.length) * 100) : plan.progress; }
 export function nextMilestoneCopy(milestones: Milestone[]) { const next = milestones.find((item) => !item.done); return next ? `下一步：${next.title}` : milestones.length ? '所有里程碑均已完成' : '下一步：添加第一个里程碑'; }
@@ -29,7 +78,20 @@ export function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnap
   return {
     version: 4,
     tasks: snapshot.tasks.map((task) => ({ id: task.id, title: task.title, time: task.time, note: typeof task.note === 'string' ? task.note : '', tag: task.tag, date: task.date === 'today' || !task.date ? today : task.date, ...(typeof task.planId === 'number' ? { planId: task.planId } : {}) })),
-    habits: snapshot.habits.map((habit) => ({ ...habit, days: Array.isArray(habit.days) && habit.days.length ? habit.days : everyDay, paused: Boolean(habit.paused), reminder: typeof habit.reminder === 'string' ? habit.reminder : '' })),
+    habits: snapshot.habits.map((habit) => {
+      const target = Number.isFinite(habit.target) && habit.target > 0 ? habit.target : 1;
+      const unit = typeof habit.unit === 'string' && habit.unit.trim() ? habit.unit.trim() : '次';
+      const step = sanitizeHabitStep(habit.step, target, unit);
+      const days = Array.isArray(habit.days) && habit.days.length ? habit.days : everyDay;
+      const paused = Boolean(habit.paused);
+      const rawRevisions = Array.isArray(habit.revisions) && habit.revisions.length ? habit.revisions : [{ effectiveFrom: '0001-01-01', target, step, unit, days, paused }];
+      const revisions = rawRevisions.map((revision) => {
+        const revisionTarget = Number.isFinite(revision.target) && revision.target > 0 ? revision.target : target;
+        const revisionUnit = typeof revision.unit === 'string' && revision.unit.trim() ? revision.unit.trim() : unit;
+        return { effectiveFrom: typeof revision.effectiveFrom === 'string' && revision.effectiveFrom ? revision.effectiveFrom : '0001-01-01', target: revisionTarget, step: sanitizeHabitStep(revision.step, revisionTarget, revisionUnit), unit: revisionUnit, days: Array.isArray(revision.days) && revision.days.length ? revision.days : days, paused: Boolean(revision.paused) };
+      }).sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+      return { ...habit, target, step, unit, days, paused, reminder: typeof habit.reminder === 'string' ? habit.reminder : '', revisions };
+    }),
     plans: snapshot.plans.map((plan) => { const milestones = Array.isArray(plan.milestones) ? plan.milestones : []; return { ...plan, milestones, next: nextMilestoneCopy(milestones), deadline: typeof plan.deadline === 'string' ? plan.deadline : '', archived: Boolean(plan.archived) }; }),
     records,
     updatedAt: snapshot.updatedAt || new Date(0).toISOString(),

@@ -1,27 +1,53 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  changeHabitValue,
   deletePlanFromSnapshot,
+  getCompanionState,
   getMonthKeys,
+  getMonthToDateKeys,
   getPreviousMonthKeys,
+  getPreviousMonthToDateKeys,
   getWeekKeys,
+  habitRevisionFor,
   moveTaskCompletion,
   nextMilestoneCopy,
   normalizeSnapshot,
   parseSnapshot,
   planProgress,
+  recommendedHabitStep,
   shiftDate,
   stamp,
+  timeGreeting,
+  upsertHabitRevision,
   type AppSnapshot,
+  type Habit,
   type Plan,
 } from '../lib/weiguang-core.ts';
+
+test('小光会温和回应进度，并在深夜优先提醒休息', () => {
+  assert.deepEqual(getCompanionState(100, 3, 14), { mood: 'celebrate', message: '今天的约定都完成啦。现在可以安心休息了。' });
+  assert.equal(getCompanionState(67, 3, 14).mood, 'bright');
+  assert.equal(getCompanionState(20, 5, 14).mood, 'curious');
+  assert.equal(getCompanionState(0, 3, 23).mood, 'sleepy');
+  assert.equal(getCompanionState(0, 0, 14).mood, 'waiting');
+});
+
+test('问候语与小光的昼夜状态保持一致', () => {
+  assert.equal(timeGreeting(1), '夜深了');
+  assert.equal(timeGreeting(8), '早上好');
+  assert.equal(timeGreeting(14), '下午好');
+  assert.equal(timeGreeting(21), '晚上好');
+});
 
 test('日期范围可跨月、跨年并正确处理闰年', () => {
   assert.equal(shiftDate('2026-12-31', 1), '2027-01-01');
   assert.equal(shiftDate('2028-02-28', 1), '2028-02-29');
   assert.deepEqual(getWeekKeys('2026-09-03'), ['2026-08-28', '2026-08-29', '2026-08-30', '2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03']);
   assert.equal(getMonthKeys('2028-02-10').length, 29);
+  assert.equal(getMonthToDateKeys('2028-02-10').length, 10);
   assert.equal(getPreviousMonthKeys('2026-03-10').at(-1), '2026-02-28');
+  assert.deepEqual(getPreviousMonthToDateKeys('2026-03-03'), ['2026-02-01', '2026-02-02', '2026-02-03']);
 });
 
 test('计划进度和下一里程碑始终由当前里程碑计算', () => {
@@ -47,7 +73,35 @@ test('旧版 today 记录和缺失字段会安全迁移到当前日期', () => {
   assert.deepEqual(migrated.records['2026-09-03'], { taskDone: [1], habits: { '2': 1 } });
   assert.equal(migrated.habits[0].days.length, 7);
   assert.equal(migrated.habits[0].paused, false);
+  assert.equal(migrated.habits[0].step, 1);
+  assert.equal(migrated.habits[0].revisions[0].effectiveFrom, '0001-01-01');
   assert.equal(migrated.plans[0].next, '下一步：添加第一个里程碑');
+});
+
+test('习惯新设置只从生效日开始，不改写历史目标和周期', () => {
+  const original = {
+    id: 1, icon: '水', title: '喝水', target: 8, step: 1, unit: '杯', color: 'blue', days: [1, 2, 3, 4, 5], paused: false, reminder: '',
+    revisions: [{ effectiveFrom: '0001-01-01', target: 8, step: 1, unit: '杯', days: [1, 2, 3, 4, 5], paused: false }],
+  } satisfies Habit;
+  const changed = upsertHabitRevision({ ...original, target: 2000, step: 250, unit: 'ml', days: [1, 3, 5] }, '2026-09-04');
+  assert.deepEqual(habitRevisionFor(changed, '2026-09-03'), original.revisions[0]);
+  assert.equal(habitRevisionFor(changed, '2026-09-04').target, 2000);
+  assert.equal(habitRevisionFor(changed, '2026-09-04').step, 250);
+  assert.deepEqual(habitRevisionFor(changed, '2026-09-04').days, [1, 3, 5]);
+});
+
+test('习惯记录量会根据目标和单位给出合理默认值', () => {
+  assert.equal(recommendedHabitStep(2000, 'ml'), 250);
+  assert.equal(recommendedHabitStep(20, '分钟'), 5);
+  assert.equal(recommendedHabitStep(8, '杯'), 1);
+  assert.equal(recommendedHabitStep(10000, '步'), 1000);
+});
+
+test('习惯进度不会超出目标或低于零，且小数记录不会产生浮点尾数', () => {
+  assert.equal(changeHabitValue(1750, 250, 2000), 2000);
+  assert.equal(changeHabitValue(1900, 250, 2000), 2000);
+  assert.equal(changeHabitValue(100, -250, 2000), 0);
+  assert.equal(changeHabitValue(0.2, 0.1, 1), 0.3);
 });
 
 test('待办改期会迁移完成状态且不会产生重复 ID', () => {

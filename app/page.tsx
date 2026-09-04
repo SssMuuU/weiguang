@@ -1,5 +1,7 @@
 'use client';
 
+/* eslint-disable @next/next/no-img-element -- This shared component also ships through Vite/Capacitor, where next/image is unavailable. */
+
 import type { CSSProperties } from 'react';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { App } from '@capacitor/app';
@@ -11,23 +13,32 @@ import { Preferences } from '@capacitor/preferences';
 import { Share } from '@capacitor/share';
 import {
   deletePlanFromSnapshot,
+  changeHabitValue,
   emptyRecord,
   everyDay,
   fromDateKey,
+  getCompanionState,
   getMonthKeys,
-  getPreviousMonthKeys,
+  getMonthToDateKeys,
+  getPreviousMonthToDateKeys,
   getWeekKeys,
+  habitRevisionFor,
   moveTaskCompletion,
   nextMilestoneCopy,
   normalizeSnapshot,
   parseSnapshot,
   planDeadlineCopy,
   planProgress,
+  recommendedHabitStep,
+  sanitizeHabitStep,
   shiftDate,
   shortWeekday,
   stamp,
+  timeGreeting,
   toDateKey,
+  upsertHabitRevision,
   type AppSnapshot,
+  type CompanionMood,
   type DailyRecord,
   type Habit,
   type LocalReadResult,
@@ -38,15 +49,17 @@ import {
 type View = 'today' | 'plans' | 'habits' | 'review';
 type AddKind = 'task' | 'habit' | 'plan';
 type ReviewRange = 'week' | 'month';
-type SyncState = 'loading' | 'device';
+type SyncState = 'loading' | 'saving' | 'saved' | 'error';
 type InstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 const weekDayOptions = [{ value: 1, label: '一' }, { value: 2, label: '二' }, { value: 3, label: '三' }, { value: 4, label: '四' }, { value: 5, label: '五' }, { value: 6, label: '六' }, { value: 0, label: '日' }];
+const snapshotKey = 'weiguang.snapshot.v4';
+const rollbackKey = 'weiguang.snapshot.before-import.v4';
 
 const initialHabits: Habit[] = [
-  { id: 1, icon: '水', title: '喝水', target: 8, unit: '杯', color: 'blue', days: everyDay, paused: false, reminder: '09:00' },
-  { id: 2, icon: '读', title: '每日阅读', target: 20, unit: '分钟', color: 'violet', days: everyDay, paused: false, reminder: '20:30' },
-  { id: 3, icon: '步', title: '散步', target: 1, unit: '次', color: 'orange', days: [1, 2, 3, 4, 5, 6], paused: false, reminder: '18:30' },
+  { id: 1, icon: '水', title: '喝水', target: 8, step: 1, unit: '杯', color: 'blue', days: everyDay, paused: false, reminder: '09:00', revisions: [{ effectiveFrom: '0001-01-01', target: 8, step: 1, unit: '杯', days: everyDay, paused: false }] },
+  { id: 2, icon: '读', title: '每日阅读', target: 20, step: 5, unit: '分钟', color: 'violet', days: everyDay, paused: false, reminder: '20:30', revisions: [{ effectiveFrom: '0001-01-01', target: 20, step: 5, unit: '分钟', days: everyDay, paused: false }] },
+  { id: 3, icon: '步', title: '散步', target: 1, step: 1, unit: '次', color: 'orange', days: [1, 2, 3, 4, 5, 6], paused: false, reminder: '18:30', revisions: [{ effectiveFrom: '0001-01-01', target: 1, step: 1, unit: '次', days: [1, 2, 3, 4, 5, 6], paused: false }] },
 ];
 
 const initialPlans: Plan[] = [
@@ -83,8 +96,8 @@ function createEmptySnapshot(today: string): AppSnapshot {
 async function readLocal(today: string): Promise<LocalReadResult> {
   try {
     const stored = Capacitor.isNativePlatform()
-      ? (await Preferences.get({ key: 'weiguang.snapshot.v4' })).value || (await Preferences.get({ key: 'weiguang.snapshot.v3' })).value
-      : window.localStorage.getItem('weiguang.snapshot.v4') || window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2');
+      ? (await Preferences.get({ key: snapshotKey })).value || (await Preferences.get({ key: 'weiguang.snapshot.v3' })).value
+      : window.localStorage.getItem(snapshotKey) || window.localStorage.getItem('weiguang.snapshot.v3') || window.localStorage.getItem('weiguang.snapshot.v2');
     const current = parseSnapshot(JSON.parse(stored || 'null'));
     if (current) return { snapshot: normalizeSnapshot(current, today), firstRun: false };
   } catch { /* Invalid local cache enters the safe first-run flow. */ }
@@ -183,8 +196,13 @@ export default function Home() {
   const [milestoneDraft, setMilestoneDraft] = useState('');
   const [reviewRange, setReviewRange] = useState<ReviewRange>('week');
   const [toast, setToast] = useState('');
+  const [companionReaction, setCompanionReaction] = useState('');
+  const [companionPulse, setCompanionPulse] = useState(0);
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [rollbackAvailable, setRollbackAvailable] = useState(false);
   const dialogReturnFocus = useRef<HTMLElement | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveSequence = useRef(0);
   const isNative = Capacitor.isNativePlatform();
   const taskEditorOpen = taskEditor !== null;
   const habitEditorOpen = habitEditor !== null;
@@ -195,9 +213,10 @@ export default function Home() {
     const isWindowsApp = window.location.hostname === '127.0.0.1' && window.location.port === '17895';
     void (async () => {
       const local = await readLocal(today);
-      setTodayKey(today); setSelectedDate(today); setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
+      setTodayKey(today); setSelectedDate(today); setGreeting(timeGreeting(now.getHours()));
       setSnapshot(local.snapshot); setWelcome(local.firstRun); setReady(true);
-      setSyncState('device');
+       const rollback = isNative ? (await Preferences.get({ key: rollbackKey })).value : window.localStorage.getItem(rollbackKey);
+       setRollbackAvailable(Boolean(rollback)); setSyncState('saved');
       if (isNative) void syncAllHabitReminders(local.snapshot.habits);
     })();
     if (isNative) document.body.classList.add('native-app');
@@ -213,7 +232,7 @@ export default function Home() {
       if (!isActive) return;
       const now = new Date();
       const nextToday = toDateKey(now);
-      setGreeting(now.getHours() < 11 ? '早上好' : now.getHours() < 18 ? '下午好' : '晚上好');
+      setGreeting(timeGreeting(now.getHours()));
       setTodayKey((currentToday) => {
         if (currentToday === nextToday) return currentToday;
         setSelectedDate((currentSelected) => currentSelected === currentToday ? nextToday : currentSelected);
@@ -225,8 +244,15 @@ export default function Home() {
 
   useEffect(() => {
     if (!ready || welcome) return;
-    if (isNative) void Preferences.set({ key: 'weiguang.snapshot.v4', value: JSON.stringify(snapshot) });
-    else window.localStorage.setItem('weiguang.snapshot.v4', JSON.stringify(snapshot));
+    const payload = JSON.stringify(snapshot);
+    const sequence = ++saveSequence.current;
+    const operation = saveQueue.current.catch(() => undefined).then(async () => {
+      if (saveSequence.current === sequence) setSyncState('saving');
+      if (isNative) await Preferences.set({ key: snapshotKey, value: payload });
+      else window.localStorage.setItem(snapshotKey, payload);
+    });
+    saveQueue.current = operation;
+    void operation.then(() => { if (saveSequence.current === sequence) setSyncState('saved'); }).catch(() => { if (saveSequence.current === sequence) setSyncState('error'); });
   }, [snapshot, ready, isNative, welcome]);
 
   useEffect(() => {
@@ -253,33 +279,36 @@ export default function Home() {
   }, [welcome, modal, dataModal, selectedPlanId, taskEditorOpen, habitEditorOpen]);
 
   useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2200); return () => window.clearTimeout(timer); }, [toast]);
+  useEffect(() => { if (!companionReaction) return; const timer = window.setTimeout(() => setCompanionReaction(''), 3200); return () => window.clearTimeout(timer); }, [companionReaction, companionPulse]);
 
   const { tasks, habits, plans } = snapshot;
   const activePlans = plans.filter((plan) => !plan.archived);
   const archivedPlans = plans.filter((plan) => plan.archived);
   const visiblePlans = showArchivedPlans ? archivedPlans : activePlans;
   const recordFor = (key: string) => snapshot.records[key] || emptyRecord();
-  const isScheduled = (habit: Habit, key: string) => !habit.paused && habit.days.includes(fromDateKey(key).getDay());
+  const habitStateFor = (habit: Habit, key: string) => habitRevisionFor(habit, key);
+  const isScheduled = (habit: Habit, key: string) => { const state = habitStateFor(habit, key); return !state.paused && state.days.includes(fromDateKey(key).getDay()); };
   const selectedRecord = recordFor(selectedDate);
   const selectedTasks = tasks.filter((task) => task.date === selectedDate);
   const selectedHabits = habits.filter((habit) => isScheduled(habit, selectedDate));
   const taskDone = selectedTasks.filter((task) => selectedRecord.taskDone.includes(task.id)).length;
-  const habitDone = selectedHabits.filter((habit) => (selectedRecord.habits[String(habit.id)] || 0) >= habit.target).length;
+  const habitDone = selectedHabits.filter((habit) => (selectedRecord.habits[String(habit.id)] || 0) >= habitStateFor(habit, selectedDate).target).length;
   const todayTotal = selectedTasks.length + selectedHabits.length;
   const todayDone = taskDone + habitDone;
   const progress = todayTotal ? Math.round((todayDone / todayTotal) * 100) : 0;
   const averagePlan = activePlans.length ? Math.round(activePlans.reduce((sum, plan) => sum + planProgress(plan), 0) / activePlans.length) : 0;
   const weekDays = useMemo(() => getWeekKeys(todayKey), [todayKey]);
   const monthDays = useMemo(() => getMonthKeys(todayKey), [todayKey]);
-  const rangeDays = reviewRange === 'week' ? weekDays : monthDays;
-  const previousDays = reviewRange === 'week' ? weekDays.map((key) => shiftDate(key, -7)) : getPreviousMonthKeys(todayKey);
+  const monthToDateDays = useMemo(() => getMonthToDateKeys(todayKey), [todayKey]);
+  const rangeDays = reviewRange === 'week' ? weekDays : monthToDateDays;
+  const previousDays = reviewRange === 'week' ? weekDays.map((key) => shiftDate(key, -7)) : getPreviousMonthToDateKeys(todayKey);
 
   function completionForDate(key: string) {
     const dayTasks = tasks.filter((task) => task.date === key);
     const scheduled = habits.filter((habit) => isScheduled(habit, key));
     const record = recordFor(key);
     const doneTasks = dayTasks.filter((task) => record.taskDone.includes(task.id)).length;
-    const doneHabits = scheduled.filter((habit) => (record.habits[String(habit.id)] || 0) >= habit.target).length;
+    const doneHabits = scheduled.filter((habit) => (record.habits[String(habit.id)] || 0) >= habitStateFor(habit, key).target).length;
     const total = dayTasks.length + scheduled.length;
     return total ? Math.round(((doneTasks + doneHabits) / total) * 100) : 0;
   }
@@ -292,14 +321,20 @@ export default function Home() {
   const rangeTaskDone = tasks.filter((task) => rangeDays.includes(task.date) && recordFor(task.date).taskDone.includes(task.id)).length;
   const rangeTaskTotal = tasks.filter((task) => rangeDays.includes(task.date)).length;
   const rangeHabitPossible = rangeDays.reduce((sum, key) => sum + habits.filter((habit) => isScheduled(habit, key)).length, 0);
-  const rangeHabitDone = rangeDays.reduce((sum, key) => sum + habits.filter((habit) => isScheduled(habit, key) && (recordFor(key).habits[String(habit.id)] || 0) >= habit.target).length, 0);
+  const rangeHabitDone = rangeDays.reduce((sum, key) => sum + habits.filter((habit) => isScheduled(habit, key) && (recordFor(key).habits[String(habit.id)] || 0) >= habitStateFor(habit, key).target).length, 0);
   const bestDayIndex = rangeBars.indexOf(Math.max(...rangeBars));
   const bestDate = rangeDays[Math.max(0, bestDayIndex)] || todayKey;
   const isToday = selectedDate === todayKey;
   const selectedLabel = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(fromDateKey(selectedDate));
   const header = copy[view];
-  const syncCopy = syncState === 'loading' ? '正在读取' : isNative ? '已保存在此 iPhone' : '已保存在本机';
+  const syncCopy = syncState === 'loading' ? '正在读取' : syncState === 'saving' ? '正在保存' : syncState === 'error' ? '保存失败' : isNative ? '已保存在此 iPhone' : '已保存在本机';
+  const syncDescription = syncState === 'error' ? '本次更改未能写入存储，请先导出备份，再检查设备空间或浏览器权限。' : syncState === 'saving' ? '正在将最新更改写入当前设备。' : '无需注册账号；计划、习惯、待办和记录仅保存在当前设备。';
   const selectedPlan = plans.find((plan) => plan.id === selectedPlanId) || null;
+  const companion = getCompanionState(progress, todayTotal, new Date().getHours());
+  const companionViewMessage = view === 'plans' ? '大目标也会被一小步一小步照亮。' : view === 'habits' ? '重复的小事，会悄悄长成你的力量。' : view === 'review' ? '这些微小的痕迹，我都替你记得。' : !isToday ? '这一天留下的努力，我也记得。' : companion.message;
+  const companionMessage = companionReaction || companionViewMessage;
+  const companionMood: CompanionMood = companionReaction ? 'bright' : companion.mood;
+  const companionNote = view === 'today' ? (todayTotal ? `${isToday ? '今天' : selectedLabel} ${todayDone} / ${todayTotal} 项被小光看见` : `${isToday ? '今天' : '这一天'}可以从任何一件小事开始`) : '摸摸小光，让自己停一小会儿';
 
   function updateSnapshot(change: (current: AppSnapshot) => AppSnapshot) { setSnapshot((current) => stamp(change(current))); }
   function updateRecord(key: string, change: (record: DailyRecord) => DailyRecord) { updateSnapshot((current) => ({ ...current, records: { ...current.records, [key]: change(current.records[key] || emptyRecord()) } })); }
@@ -310,6 +345,27 @@ export default function Home() {
   function openPlan(plan: Plan) { rememberDialogTrigger(); setSelectedPlanId(plan.id); setPlanTitleDraft(plan.title); setPlanDetailDraft(plan.detail); setPlanDeadlineDraft(plan.deadline); }
   function openTaskEditor(task: Task) { rememberDialogTrigger(); setTaskEditor({ ...task }); }
   function openHabitEditor(habit: Habit) { rememberDialogTrigger(); setHabitEditor({ ...habit }); }
+  function changeHabitTarget(target: number) {
+    setHabitEditor((current) => {
+      if (!current) return current;
+      const nextTarget = Number.isFinite(target) && target > 0 ? target : 1;
+      const followsRecommendation = current.step === recommendedHabitStep(current.target, current.unit);
+      return { ...current, target: nextTarget, step: followsRecommendation ? recommendedHabitStep(nextTarget, current.unit) : sanitizeHabitStep(current.step, nextTarget, current.unit) };
+    });
+  }
+  function changeHabitUnit(unit: string) {
+    setHabitEditor((current) => {
+      if (!current) return current;
+      const followsRecommendation = current.step === recommendedHabitStep(current.target, current.unit);
+      return { ...current, unit, step: followsRecommendation ? recommendedHabitStep(current.target, unit) : current.step };
+    });
+  }
+  function wakeCompanion(message: string) { setCompanionReaction(message); setCompanionPulse((current) => current + 1); }
+  function petCompanion() {
+    const messages = ['嗯，我在这里。', '今天也辛苦啦。', '慢一点也没有关系。'];
+    wakeCompanion(messages[companionPulse % messages.length]);
+    nativeImpact();
+  }
 
   function submitAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const cleanTitle = title.trim(); if (!cleanTitle) return; const id = Date.now();
@@ -317,14 +373,16 @@ export default function Home() {
       updateSnapshot((current) => ({ ...current, tasks: [...current.tasks, { id, title: cleanTitle, time: detail.trim() || '未设时间', note: taskNote.trim(), tag: '新建', date: selectedDate, ...(planChoice ? { planId: Number(planChoice) } : {}) }] }));
       setToast(`待办已加入${isToday ? '今天' : selectedLabel}`);
     } else if (addKind === 'habit') {
-      updateSnapshot((current) => ({ ...current, habits: [...current.habits, { id, icon: cleanTitle.slice(0, 1), title: cleanTitle, target: Math.max(1, Number(detail) || 1), unit: '次', color: 'violet', days: everyDay, paused: false, reminder: '' }] })); setToast('新习惯已创建');
+      const target = Math.max(1, Number(detail) || 1);
+      const step = recommendedHabitStep(target, '次');
+      updateSnapshot((current) => ({ ...current, habits: [...current.habits, { id, icon: cleanTitle.slice(0, 1), title: cleanTitle, target, step, unit: '次', color: 'violet', days: everyDay, paused: false, reminder: '', revisions: [{ effectiveFrom: todayKey, target, step, unit: '次', days: everyDay, paused: false }] }] })); setToast('新习惯已创建');
     } else {
       updateSnapshot((current) => ({ ...current, plans: [...current.plans, { id, title: cleanTitle, detail: detail.trim() || '个人计划', progress: 0, color: 'blue', next: '下一步：添加第一个里程碑', milestones: [], deadline: planDeadline, archived: false }] })); setToast('计划已开始');
     }
     setModal(false);
   }
 
-  function toggleTask(id: number, key = selectedDate) { const completing = !recordFor(key).taskDone.includes(id); updateRecord(key, (record) => ({ ...record, taskDone: record.taskDone.includes(id) ? record.taskDone.filter((taskId) => taskId !== id) : [...record.taskDone, id] })); if (completing) nativeSuccess(); else nativeImpact(); }
+  function toggleTask(id: number, key = selectedDate) { const completing = !recordFor(key).taskDone.includes(id); updateRecord(key, (record) => ({ ...record, taskDone: record.taskDone.includes(id) ? record.taskDone.filter((taskId) => taskId !== id) : [...record.taskDone, id] })); if (completing) { nativeSuccess(); wakeCompanion('又完成一件，我都看见啦。'); } else nativeImpact(); }
   function removeTask(id: number) { const task = tasks.find((item) => item.id === id); if (!task || !window.confirm(`删除待办“${task.title}”吗？相关完成记录也会一并删除。`)) return; updateSnapshot((current) => ({ ...current, tasks: current.tasks.filter((item) => item.id !== id), records: Object.fromEntries(Object.entries(current.records).map(([key, record]) => [key, { ...record, taskDone: record.taskDone.filter((taskId) => taskId !== id) }])) })); setToast('待办已移除'); }
   function saveTaskEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -343,13 +401,15 @@ export default function Home() {
   function changeHabitProgress(id: number, amount: number, key = view === 'today' ? selectedDate : todayKey) {
     const habit = habits.find((item) => item.id === id);
     if (!habit || !isScheduled(habit, key) || key > todayKey) return;
+    const habitState = habitStateFor(habit, key);
+    const appliedAmount = amount < 0 ? -habitState.step : habitState.step;
     const currentValue = recordFor(key).habits[String(id)] || 0;
-    const nextValue = Math.max(0, Math.min(habit.target, currentValue + amount));
+    const nextValue = changeHabitValue(currentValue, appliedAmount, habitState.target);
     if (nextValue === currentValue) return;
     updateRecord(key, (record) => ({ ...record, habits: { ...record.habits, [String(id)]: nextValue } }));
-    if (amount > 0 && nextValue >= habit.target) nativeSuccess(); else nativeImpact();
-    if (key < todayKey) setToast(nextValue >= habit.target ? `${habit.title} 已补记完成` : `${habit.title} 的历史进度已更新`);
-    else setToast(nextValue >= habit.target ? `${habit.title} 已完成` : amount > 0 ? '已记录一次，继续保持' : '已撤销一次记录');
+    if (appliedAmount > 0 && nextValue >= habitState.target) { nativeSuccess(); wakeCompanion(`“${habit.title}”完成啦，尾巴都翘起来了。`); } else nativeImpact();
+    if (key < todayKey) setToast(nextValue >= habitState.target ? `${habit.title} 已补记完成` : `${habit.title} 的历史进度已更新`);
+    else setToast(nextValue >= habitState.target ? `${habit.title} 已完成` : appliedAmount > 0 ? `已记录 ${Math.abs(appliedAmount)} ${habitState.unit}` : `已减少 ${Math.abs(appliedAmount)} ${habitState.unit}`);
   }
 
   function addMilestone(event: FormEvent<HTMLFormElement>) {
@@ -367,7 +427,7 @@ export default function Home() {
     updateSnapshot((current) => ({ ...current, plans: current.plans.map((plan) => {
       if (plan.id !== planId) return plan; const milestones = plan.milestones.map((item) => item.id === milestoneId ? { ...item, done: !item.done } : item);
       return { ...plan, milestones, progress: Math.round((milestones.filter((item) => item.done).length / Math.max(1, milestones.length)) * 100), next: nextMilestoneCopy(milestones) };
-    }) })); if (completing) nativeSuccess(); else nativeImpact();
+    }) })); if (completing) { nativeSuccess(); wakeCompanion('又向计划靠近了一步，真好。'); } else nativeImpact();
   }
 
   function removeMilestone(planId: number, milestoneId: number) {
@@ -403,7 +463,9 @@ export default function Home() {
     if (!habitEditor) return;
     const cleanTitle = habitEditor.title.trim();
     if (!cleanTitle) { setToast('请为习惯填写名称'); return; }
-    const savedHabit: Habit = { ...habitEditor, title: cleanTitle, icon: habitEditor.icon.trim() || cleanTitle.slice(0, 1), unit: habitEditor.unit.trim() || '次', days: habitEditor.days.length ? habitEditor.days : everyDay };
+    const unit = habitEditor.unit.trim() || '次';
+    const target = Number.isFinite(habitEditor.target) && habitEditor.target > 0 ? habitEditor.target : 1;
+    const savedHabit = upsertHabitRevision({ ...habitEditor, title: cleanTitle, icon: habitEditor.icon.trim() || cleanTitle.slice(0, 1), target, step: sanitizeHabitStep(habitEditor.step, target, unit), unit, days: habitEditor.days.length ? habitEditor.days : everyDay }, todayKey);
     try {
       const remindersReady = await syncHabitReminder(savedHabit);
       updateSnapshot((current) => ({ ...current, habits: current.habits.map((habit) => habit.id === savedHabit.id ? savedHabit : habit) }));
@@ -425,7 +487,7 @@ export default function Home() {
     }));
     setHabitEditor(null); nativeImpact(ImpactStyle.Medium); setToast(remindersCleared ? '习惯及其历史记录已删除' : '习惯已删除，请检查系统中的待处理提醒');
   }
-  function habitStreak(habit: Habit) { if (habit.paused) return 0; let streak = 0; for (let offset = 0; offset < 366; offset += 1) { const key = shiftDate(todayKey, -offset); if (!habit.days.includes(fromDateKey(key).getDay())) continue; if ((recordFor(key).habits[String(habit.id)] || 0) < habit.target) break; streak += 1; } return streak; }
+  function habitStreak(habit: Habit) { if (habit.paused) return 0; let streak = 0; for (let offset = 0; offset < 366; offset += 1) { const key = shiftDate(todayKey, -offset); const state = habitStateFor(habit, key); if (state.paused || !state.days.includes(fromDateKey(key).getDay())) continue; if ((recordFor(key).habits[String(habit.id)] || 0) < state.target) break; streak += 1; } return streak; }
 
   async function exportData() {
     const fileName = `weiguang-backup-${todayKey}.json`;
@@ -440,7 +502,39 @@ export default function Home() {
     }
     const blob = new Blob([data], { type: 'application/json' }); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = fileName; anchor.click(); URL.revokeObjectURL(url); setToast('备份文件已导出');
   }
-  async function importData(file: File | undefined) { if (!file) return; try { const imported = parseSnapshot(JSON.parse(await file.text())); if (!imported) throw new Error('Invalid backup'); const restored = stamp(normalizeSnapshot(imported, todayKey)); setSnapshot(restored); if (isNative) void syncAllHabitReminders(restored.habits); setDataModal(false); setToast('备份数据已恢复'); } catch { setToast('无法读取这个备份文件'); } }
+  async function writeImportRollback(value: AppSnapshot) {
+    const payload = JSON.stringify(value);
+    if (isNative) await Preferences.set({ key: rollbackKey, value: payload });
+    else window.localStorage.setItem(rollbackKey, payload);
+    setRollbackAvailable(true);
+  }
+  async function importData(file: File | undefined) {
+    if (!file) return;
+    try {
+      const imported = parseSnapshot(JSON.parse(await file.text()));
+      if (!imported) throw new Error('Invalid backup');
+      const restored = stamp(normalizeSnapshot(imported, todayKey));
+      const summary = `${restored.tasks.length} 项待办、${restored.habits.length} 个习惯、${restored.plans.length} 个计划`;
+      if (!window.confirm(`这个备份包含 ${summary}。\n\n继续后将替换当前数据，微光会先保留一份恢复点。`)) return;
+      try { await writeImportRollback(snapshot); } catch { setToast('无法创建恢复点，已取消导入'); return; }
+      setSnapshot(restored);
+      if (isNative) void syncAllHabitReminders(restored.habits);
+      setDataModal(false); setToast('备份已恢复，原数据已保留');
+    } catch { setToast('无法读取这个备份文件'); }
+  }
+  async function restoreImportRollback() {
+    if (!window.confirm('恢复到上次导入之前吗？当前数据将被替换。')) return;
+    try {
+      const stored = isNative ? (await Preferences.get({ key: rollbackKey })).value : window.localStorage.getItem(rollbackKey);
+      const rollback = parseSnapshot(JSON.parse(stored || 'null'));
+      if (!rollback) throw new Error('Invalid rollback');
+      const restored = stamp(normalizeSnapshot(rollback, todayKey));
+      setSnapshot(restored);
+      if (isNative) { await Preferences.remove({ key: rollbackKey }); void syncAllHabitReminders(restored.habits); }
+      else window.localStorage.removeItem(rollbackKey);
+      setRollbackAvailable(false); setDataModal(false); setToast('已恢复到导入前的状态');
+    } catch { setRollbackAvailable(false); setToast('上次的恢复点已不可用'); }
+  }
   function clearData() { if (!window.confirm('确定清空全部计划、习惯、待办和记录吗？此操作无法撤销，建议先导出备份。')) return; const empty = createEmptySnapshot(todayKey); setSnapshot(empty); if (isNative) void syncAllHabitReminders(empty.habits); setSelectedDate(todayKey); setDataModal(false); setToast('全部数据已清空'); }
   function restoreDemoData() { if (!window.confirm('用示例内容替换当前数据吗？现有计划、习惯、待办和记录会被覆盖，建议先导出备份。')) return; const seed = createSeedSnapshot(todayKey); setSnapshot(seed); if (isNative) void syncAllHabitReminders(seed.habits); setSelectedDate(todayKey); setDataModal(false); setToast('示例数据已恢复'); }
   async function installApp() { if (!installPrompt) return; await installPrompt.prompt(); await installPrompt.userChoice; setInstallPrompt(null); }
@@ -455,16 +549,16 @@ export default function Home() {
       <section className="content">
         <header className="topbar"><div><p className="eyebrow">{view === 'today' ? selectedLabel : header.eyebrow}</p><h1>{view === 'today' ? (isToday ? `${greeting}，${header.title}` : '这一天，安排了什么？') : header.title}</h1></div><div className="top-actions"><button className={`sync-pill ${syncState}`} onClick={openDataModal} aria-label="打开数据管理"><i />{syncCopy}</button><button className="avatar" onClick={openDataModal} aria-label="打开微光信息">微</button></div></header>
 
-        {view === 'today' && <><div className="date-controls glass-panel"><button onClick={() => setSelectedDate(shiftDate(selectedDate, -1))} aria-label="前一天">‹</button><div><strong>{isToday ? '今天' : selectedLabel}</strong><span>{selectedTasks.length} 项待办 · {habitDone}/{selectedHabits.length} 项习惯</span></div>{!isToday && <button className="back-today" onClick={() => setSelectedDate(todayKey)}>回到今天</button>}<button onClick={() => setSelectedDate(shiftDate(selectedDate, 1))} aria-label="后一天">›</button></div><section className="overview glass-panel" aria-label="所选日期进度"><div><span className="section-label">{isToday ? '今日进度' : '当日进度'}</span><strong>{progress === 100 ? '这一天的约定，都完成了。' : '慢慢来，也是在前进。'}</strong><p>已完成 {todayDone} 项，还有 {todayTotal - todayDone} 项等你。</p></div><div className="progress-ring" style={{ '--progress': `${progress}%` } as CSSProperties}><span>{progress}<small>%</small></span></div></section><section className="task-section" aria-labelledby="today-tasks"><div className="section-head"><div><span className="section-label">待办</span><h2 id="today-tasks">{isToday ? '今天' : selectedLabel}</h2></div><button className="add-button" onClick={() => openAdd('task')}><span>＋</span> 添加待办</button></div><div className="task-list glass-panel">{selectedTasks.length === 0 && <EmptyState text="这一天还没有待办，给自己安排一件小事吧。" onAdd={() => openAdd('task')} />}{selectedTasks.map((task) => { const done = selectedRecord.taskDone.includes(task.id); const linkedPlan = plans.find((plan) => plan.id === task.planId); const meta = [task.time !== '未设时间' ? task.time : '', task.note].filter(Boolean).join(' · ') || '未设时间'; return <article className={`task-row ${done ? 'is-done' : ''}`} key={task.id}><button className="check" onClick={() => toggleTask(task.id)} aria-label={`${done ? '取消完成' : '完成'} ${task.title}`}>{done ? '✓' : ''}</button><button className="task-copy task-edit" onClick={() => openTaskEditor(task)} aria-label={`编辑 ${task.title}`}><strong>{task.title}</strong><span>{meta}</span></button><span className={`tag ${linkedPlan ? 'linked' : ''}`}>{linkedPlan ? linkedPlan.title : task.tag}</span><button className="remove" onClick={() => removeTask(task.id)} aria-label={`删除 ${task.title}`}>×</button></article>; })}</div></section><section className={`task-section day-habit-section ${isToday ? '' : 'historical'}`} aria-labelledby="day-habits"><div className="section-head"><div><span className="section-label">习惯记录</span><h2 id="day-habits">{selectedDate > todayKey ? '未来日期暂不能记录' : isToday ? '今天的习惯' : '补记或撤销'}</h2></div><button className="add-button" onClick={() => navigate('habits')}>管理习惯</button></div><div className="day-habit-list glass-panel">{selectedHabits.length === 0 && <div className="day-habit-empty">这一天没有安排习惯，好好休息也是计划的一部分。</div>}{selectedHabits.map((habit) => { const value = selectedRecord.habits[String(habit.id)] || 0; const complete = value >= habit.target; const locked = selectedDate > todayKey; return <article className={`day-habit-row ${complete ? 'complete' : ''}`} key={habit.id}><div className={`habit-icon ${habit.color}`}>{habit.icon}</div><div className="day-habit-copy"><strong>{habit.title}</strong><span>{locked ? '到那一天再来记录' : `${value} / ${habit.target} ${habit.unit}`}</span><i><b style={{ width: `${Math.min(100, Math.round((value / habit.target) * 100))}%` }} /></i></div><div className="habit-stepper"><button onClick={() => changeHabitProgress(habit.id, -1, selectedDate)} disabled={locked || value === 0} aria-label={`撤销一次 ${habit.title}`}>−</button><button onClick={() => changeHabitProgress(habit.id, 1, selectedDate)} disabled={locked || complete} aria-label={`记录一次 ${habit.title}`}>＋</button></div></article>; })}</div></section></>}
+        {view === 'today' && <><div className="date-controls glass-panel"><button onClick={() => setSelectedDate(shiftDate(selectedDate, -1))} aria-label="前一天">‹</button><div><strong>{isToday ? '今天' : selectedLabel}</strong><span>{selectedTasks.length} 项待办 · {habitDone}/{selectedHabits.length} 项习惯</span></div>{!isToday && <button className="back-today" onClick={() => setSelectedDate(todayKey)}>回到今天</button>}<button onClick={() => setSelectedDate(shiftDate(selectedDate, 1))} aria-label="后一天">›</button></div><section className="overview glass-panel" aria-label="所选日期进度"><div><span className="section-label">{isToday ? '今日进度' : '当日进度'}</span><strong>{progress === 100 ? '这一天的约定，都完成了。' : '慢慢来，也是在前进。'}</strong><p>已完成 {todayDone} 项，还有 {todayTotal - todayDone} 项等你。</p></div><div className="progress-ring" style={{ '--progress': `${progress}%` } as CSSProperties}><span>{progress}<small>%</small></span></div></section><CompanionCard className="companion-mobile" mood={companionMood} message={companionMessage} note={companionNote} pulse={companionPulse} onPet={petCompanion} /><section className="task-section" aria-labelledby="today-tasks"><div className="section-head"><div><span className="section-label">待办</span><h2 id="today-tasks">{isToday ? '今天' : selectedLabel}</h2></div><button className="add-button" onClick={() => openAdd('task')}><span>＋</span> 添加待办</button></div><div className="task-list glass-panel">{selectedTasks.length === 0 && <EmptyState text="这一天还没有待办，给自己安排一件小事吧。" onAdd={() => openAdd('task')} />}{selectedTasks.map((task) => { const done = selectedRecord.taskDone.includes(task.id); const linkedPlan = plans.find((plan) => plan.id === task.planId); const meta = [task.time !== '未设时间' ? task.time : '', task.note].filter(Boolean).join(' · ') || '未设时间'; return <article className={`task-row ${done ? 'is-done' : ''}`} key={task.id}><button className="check" onClick={() => toggleTask(task.id)} aria-label={`${done ? '取消完成' : '完成'} ${task.title}`}>{done ? '✓' : ''}</button><button className="task-copy task-edit" onClick={() => openTaskEditor(task)} aria-label={`编辑 ${task.title}`}><strong>{task.title}</strong><span>{meta}</span></button><span className={`tag ${linkedPlan ? 'linked' : ''}`}>{linkedPlan ? linkedPlan.title : task.tag}</span><button className="remove" onClick={() => removeTask(task.id)} aria-label={`删除 ${task.title}`}>×</button></article>; })}</div></section><section className={`task-section day-habit-section ${isToday ? '' : 'historical'}`} aria-labelledby="day-habits"><div className="section-head"><div><span className="section-label">习惯记录</span><h2 id="day-habits">{selectedDate > todayKey ? '未来日期暂不能记录' : isToday ? '今天的习惯' : '补记或减少'}</h2></div><button className="add-button" onClick={() => navigate('habits')}>管理习惯</button></div><div className="day-habit-list glass-panel">{selectedHabits.length === 0 && <div className="day-habit-empty">这一天没有安排习惯，好好休息也是计划的一部分。</div>}{selectedHabits.map((habit) => { const state = habitStateFor(habit, selectedDate); const value = selectedRecord.habits[String(habit.id)] || 0; const complete = value >= state.target; const locked = selectedDate > todayKey; return <article className={`day-habit-row ${complete ? 'complete' : ''}`} key={habit.id}><div className={`habit-icon ${habit.color}`}>{habit.icon}</div><div className="day-habit-copy"><strong>{habit.title}</strong><span>{locked ? '到那一天再来记录' : `${value} / ${state.target} ${state.unit} · 每次 ${state.step}`}</span><i><b style={{ width: `${Math.min(100, Math.round((value / state.target) * 100))}%` }} /></i></div><div className="habit-stepper"><button onClick={() => changeHabitProgress(habit.id, -state.step, selectedDate)} disabled={locked || value === 0} aria-label={`减少 ${state.step} ${state.unit}：${habit.title}`}>−</button><button onClick={() => changeHabitProgress(habit.id, state.step, selectedDate)} disabled={locked || complete} aria-label={`增加 ${state.step} ${state.unit}：${habit.title}`}>＋</button></div></article>; })}</div></section></>}
 
         {view === 'plans' && <section className="view-section"><div className="section-head"><div><span className="section-label">{activePlans.length} 个进行中 · {archivedPlans.length} 个已归档</span><h2>{showArchivedPlans ? '完成过的，也值得被看见' : '把大目标拆成下一步'}</h2></div><div className="plan-head-actions"><button className={`archive-filter ${showArchivedPlans ? 'active' : ''}`} onClick={() => setShowArchivedPlans((current) => !current)}>{showArchivedPlans ? '返回进行中' : `查看归档 ${archivedPlans.length || ''}`}</button><button className="add-button" onClick={() => openAdd('plan')}><span>＋</span> 新建计划</button></div></div>{visiblePlans.length === 0 ? <div className="plan-empty glass-panel"><EmptyState text={showArchivedPlans ? '还没有归档计划，完成后再把它温柔地收好。' : '还没有进行中的计划，从一个清晰的小目标开始。'} onAdd={() => showArchivedPlans ? setShowArchivedPlans(false) : openAdd('plan')} /></div> : <div className="plan-grid">{visiblePlans.map((plan) => { const calculated = planProgress(plan); const linkedCount = tasks.filter((task) => task.planId === plan.id).length; return <article className={`plan-card glass-panel ${plan.archived ? 'archived' : ''}`} key={plan.id}><div className={`plan-accent ${plan.color}`} /><div className="plan-title"><span>{plan.detail}</span><strong>{plan.title}</strong></div><div className={`plan-deadline ${plan.deadline && plan.deadline < todayKey ? 'overdue' : ''}`}>{plan.archived ? '已归档' : planDeadlineCopy(plan.deadline, todayKey)}</div><div className="plan-percent"><b>{calculated}%</b><span>{plan.milestones.filter((item) => item.done).length}/{plan.milestones.length} 里程碑</span></div><div className="plan-progress"><i style={{ width: `${calculated}%` }} /></div><p>{nextMilestoneCopy(plan.milestones)} · {linkedCount} 项关联待办</p><button onClick={() => openPlan(plan)}>查看计划</button></article>; })}</div>}</section>}
 
-        {view === 'habits' && <section className="view-section"><div className="section-head"><div><span className="section-label">自定义执行周期</span><h2>{habits.filter((habit) => isScheduled(habit, todayKey) && (recordFor(todayKey).habits[String(habit.id)] || 0) >= habit.target).length} / {habits.filter((habit) => isScheduled(habit, todayKey)).length} 今日已完成</h2></div><button className="add-button" onClick={() => openAdd('habit')}><span>＋</span> 新建习惯</button></div><div className="habit-board glass-panel"><div className="habit-week-head"><span>习惯</span>{weekDays.map((key) => <small key={key}>{shortWeekday(key)}</small>)}</div>{habits.map((habit) => { const scheduledToday = isScheduled(habit, todayKey); const done = scheduledToday && (recordFor(todayKey).habits[String(habit.id)] || 0) >= habit.target; return <article className={`habit-board-row ${habit.paused ? 'paused' : ''}`} key={habit.id}><button className="habit-name habit-name-button" onClick={() => openHabitEditor(habit)}><div className={`habit-icon ${habit.color}`}>{habit.icon}</div><div><strong>{habit.title}</strong><span>{habit.paused ? '已暂停' : `连续 ${habitStreak(habit)} 天 · ${habit.reminder || '未设提醒'}`}</span></div></button>{weekDays.map((key) => { const scheduled = isScheduled(habit, key); const complete = scheduled && (recordFor(key).habits[String(habit.id)] || 0) >= habit.target; return <i key={key} className={complete ? 'complete' : scheduled ? '' : 'skipped'}>{complete ? '✓' : scheduled ? '' : '·'}</i>; })}<button onClick={() => changeHabitProgress(habit.id, 1, todayKey)} disabled={!scheduledToday || done}>{habit.paused ? '暂停' : !scheduledToday ? '休息日' : done ? '完成' : `+1 ${habit.unit}`}</button></article>; })}</div><div className="gentle-note glass-panel"><span>小提醒</span><p>点击习惯名称可设置周期与提醒；在“今天”切换到历史日期，可补记或撤销具体次数。</p></div></section>}
+        {view === 'habits' && <section className="view-section"><div className="section-head"><div><span className="section-label">自定义执行周期</span><h2>{habits.filter((habit) => isScheduled(habit, todayKey) && (recordFor(todayKey).habits[String(habit.id)] || 0) >= habitStateFor(habit, todayKey).target).length} / {habits.filter((habit) => isScheduled(habit, todayKey)).length} 今日已完成</h2></div><button className="add-button" onClick={() => openAdd('habit')}><span>＋</span> 新建习惯</button></div><div className="habit-board glass-panel"><div className="habit-week-head"><span>习惯</span>{weekDays.map((key) => <small key={key}>{shortWeekday(key)}</small>)}</div>{habits.map((habit) => { const todayState = habitStateFor(habit, todayKey); const scheduledToday = isScheduled(habit, todayKey); const done = scheduledToday && (recordFor(todayKey).habits[String(habit.id)] || 0) >= todayState.target; return <article className={`habit-board-row ${todayState.paused ? 'paused' : ''}`} key={habit.id}><button className="habit-name habit-name-button" onClick={() => openHabitEditor(habit)}><div className={`habit-icon ${habit.color}`}>{habit.icon}</div><div><strong>{habit.title}</strong><span>{todayState.paused ? '已暂停' : `连续 ${habitStreak(habit)} 天 · ${habit.reminder || '未设提醒'}`}</span></div></button>{weekDays.map((key) => { const state = habitStateFor(habit, key); const scheduled = isScheduled(habit, key); const complete = scheduled && (recordFor(key).habits[String(habit.id)] || 0) >= state.target; return <i key={key} className={complete ? 'complete' : scheduled ? '' : 'skipped'}>{complete ? '✓' : scheduled ? '' : '·'}</i>; })}<button onClick={() => changeHabitProgress(habit.id, todayState.step, todayKey)} disabled={!scheduledToday || done}>{todayState.paused ? '暂停' : !scheduledToday ? '休息日' : done ? '完成' : `+${todayState.step} ${todayState.unit}`}</button></article>; })}</div><div className="gentle-note glass-panel"><span>小提醒</span><p>新的目标、单位与执行周期从今天起生效，不会改写之前的记录。</p></div></section>}
 
-        {view === 'review' && <section className="view-section"><div className="review-toolbar"><div className="range-switch"><button className={reviewRange === 'week' ? 'active' : ''} onClick={() => setReviewRange('week')}>本周</button><button className={reviewRange === 'month' ? 'active' : ''} onClick={() => setReviewRange('month')}>本月</button></div><span>{reviewRange === 'week' ? '最近 7 天' : new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(fromDateKey(todayKey))}</span></div><div className="metric-grid"><Metric label={`${reviewRange === 'week' ? '本周' : '本月'}待办`} value={`${rangeTaskDone}`} note={`共 ${rangeTaskTotal} 项`} tone="violet" /><Metric label="习惯打卡" value={`${rangeHabitDone}`} note={`计划 ${rangeHabitPossible} 次`} tone="blue" /><Metric label="平均完成率" value={`${rangeAverage}%`} note={`计划均值 ${averagePlan}%`} tone="orange" /></div>{reviewRange === 'week' ? <article className="review-chart glass-panel"><div className="section-head"><div><span className="section-label">真实完成率</span><h2>最近 7 天</h2></div><span className={`trend ${trend < 0 ? 'down' : ''}`}>{trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}% 较上周</span></div><div className="bars" aria-label="最近七天完成率柱状图">{rangeBars.map((height, index) => <div key={rangeDays[index]}><i style={{ height: `${Math.max(height, 4)}%` }} className={index === rangeBars.length - 1 ? 'today' : ''} /><small>{shortWeekday(rangeDays[index])}</small></div>)}</div></article> : <article className="month-card glass-panel"><div className="section-head"><div><span className="section-label">月度热力图</span><h2>每天都有痕迹</h2></div><span className={`trend ${trend < 0 ? 'down' : ''}`}>{trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}% 较上月</span></div><div className="month-weekdays">{weekDayOptions.map((day) => <span key={day.value}>{day.label}</span>)}</div><div className="month-grid" style={{ '--offset': (fromDateKey(monthDays[0]).getDay() + 6) % 7 } as CSSProperties}>{monthDays.map((key) => { const value = completionForDate(key); return <div key={key} className={key === todayKey ? 'today' : ''} style={{ '--heat': `${Math.max(.06, value / 100)}` } as CSSProperties}><strong>{fromDateKey(key).getDate()}</strong><small>{value}%</small></div>; })}</div></article>}<article className="review-note glass-panel"><div className="quote-mark">“</div><div><span className="section-label">{reviewRange === 'week' ? '本周发现' : '本月发现'}</span><h2>{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(fromDateKey(bestDate))}状态最好</h2><p>{reviewRange === 'week' ? '本周' : '本月'}平均完成率为 {rangeAverage}%。报告由实际执行周期、待办和习惯记录生成。</p></div></article></section>}
+        {view === 'review' && <section className="view-section"><div className="review-toolbar"><div className="range-switch"><button className={reviewRange === 'week' ? 'active' : ''} onClick={() => setReviewRange('week')}>本周</button><button className={reviewRange === 'month' ? 'active' : ''} onClick={() => setReviewRange('month')}>本月</button></div><span>{reviewRange === 'week' ? '最近 7 天' : `${new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(fromDateKey(todayKey))} · 截至今日`}</span></div><div className="metric-grid"><Metric label={`${reviewRange === 'week' ? '本周' : '本月至今'}待办`} value={`${rangeTaskDone}`} note={`共 ${rangeTaskTotal} 项`} tone="violet" /><Metric label="习惯打卡" value={`${rangeHabitDone}`} note={`计划 ${rangeHabitPossible} 次`} tone="blue" /><Metric label="平均完成率" value={`${rangeAverage}%`} note={`计划均值 ${averagePlan}%`} tone="orange" /></div>{reviewRange === 'week' ? <article className="review-chart glass-panel"><div className="section-head"><div><span className="section-label">真实完成率</span><h2>最近 7 天</h2></div><span className={`trend ${trend < 0 ? 'down' : ''}`}>{trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}% 较上周</span></div><div className="bars" aria-label="最近七天完成率柱状图">{rangeBars.map((height, index) => <div key={rangeDays[index]}><i style={{ height: `${Math.max(height, 4)}%` }} className={index === rangeBars.length - 1 ? 'today' : ''} /><small>{shortWeekday(rangeDays[index])}</small></div>)}</div></article> : <article className="month-card glass-panel"><div className="section-head"><div><span className="section-label">月度热力图</span><h2>每天都有痕迹</h2></div><span className={`trend ${trend < 0 ? 'down' : ''}`}>{trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}% 较上月同期</span></div><div className="month-weekdays">{weekDayOptions.map((day) => <span key={day.value}>{day.label}</span>)}</div><div className="month-grid" style={{ '--offset': (fromDateKey(monthDays[0]).getDay() + 6) % 7 } as CSSProperties}>{monthDays.map((key) => { const value = completionForDate(key); return <div key={key} className={key === todayKey ? 'today' : ''} style={{ '--heat': `${Math.max(.06, value / 100)}` } as CSSProperties}><strong>{fromDateKey(key).getDate()}</strong><small>{key > todayKey ? '·' : `${value}%`}</small></div>; })}</div></article>}<article className="review-note glass-panel"><div className="quote-mark">“</div><div><span className="section-label">{reviewRange === 'week' ? '本周发现' : '本月至今'}</span><h2>{new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(fromDateKey(bestDate))}状态最好</h2><p>{reviewRange === 'week' ? '本周' : '本月至今'}平均完成率为 {rangeAverage}%。报告由实际执行周期、待办和习惯记录生成。</p></div></article></section>}
       </section>
 
-      <aside className="right-rail"><div className="rail-head"><div><span className="section-label">{view === 'today' && !isToday ? selectedLabel : '保持节奏'}</span><h2>{view === 'today' && !isToday ? '当日习惯' : '今日习惯'}</h2></div><button onClick={() => openAdd('habit')} aria-label="添加习惯">＋</button></div><div className="habit-stack">{habits.filter((habit) => !habit.paused).slice(0, 4).map((habit) => { const key = view === 'today' ? selectedDate : todayKey; const scheduled = isScheduled(habit, key); const value = recordFor(key).habits[String(habit.id)] || 0; const percent = scheduled ? Math.min(100, Math.round((value / habit.target) * 100)) : 0; const locked = key > todayKey; return <article className={`habit-card glass-panel ${scheduled ? '' : 'resting'}`} key={habit.id}><button className={`habit-icon ${habit.color}`} onClick={() => openHabitEditor(habit)} aria-label={`编辑习惯 ${habit.title}`}>{habit.icon}</button><div className="habit-info"><strong>{habit.title}</strong><span>{scheduled ? locked ? '未来日期暂不能记录' : `${value} / ${habit.target} ${habit.unit}` : '今天休息'}</span></div><button className="habit-plus" onClick={() => changeHabitProgress(habit.id, percent === 100 ? -habit.target : 1, key)} disabled={!scheduled || locked} aria-label={percent === 100 ? `撤销 ${habit.title}` : `记录一次 ${habit.title}`}>{!scheduled ? '·' : percent === 100 ? '↶' : '+'}</button><div className="mini-progress"><i style={{ width: `${percent}%` }} /></div></article>; })}</div><article className="reflection glass-panel"><span>今日一句</span><blockquote>“不需要很厉害才开始，开始了才会慢慢变厉害。”</blockquote><div className="week-dots">{weekDays.map((key) => <div key={key}><i className={completionForDate(key) >= 60 ? 'filled' : ''} /><small>{shortWeekday(key)}</small></div>)}</div></article></aside>
+      <aside className="right-rail"><CompanionCard className="companion-desktop" mood={companionMood} message={companionMessage} note={companionNote} pulse={companionPulse} onPet={petCompanion} /><div className="rail-head"><div><span className="section-label">{view === 'today' && !isToday ? selectedLabel : '保持节奏'}</span><h2>{view === 'today' && !isToday ? '当日习惯' : '今日习惯'}</h2></div><button onClick={() => openAdd('habit')} aria-label="添加习惯">＋</button></div><div className="habit-stack">{habits.filter((habit) => !habitStateFor(habit, view === 'today' ? selectedDate : todayKey).paused).map((habit) => { const key = view === 'today' ? selectedDate : todayKey; const state = habitStateFor(habit, key); const scheduled = isScheduled(habit, key); const value = recordFor(key).habits[String(habit.id)] || 0; const percent = scheduled ? Math.min(100, Math.round((value / state.target) * 100)) : 0; const locked = key > todayKey; return <article className={`habit-card glass-panel ${scheduled ? '' : 'resting'}`} key={habit.id}><button className={`habit-icon ${habit.color}`} onClick={() => openHabitEditor(habit)} aria-label={`编辑习惯 ${habit.title}`}>{habit.icon}</button><div className="habit-info"><strong>{habit.title}</strong><span>{scheduled ? locked ? '未来日期暂不能记录' : `${value} / ${state.target} ${state.unit}` : '今天休息'}</span></div><div className="habit-quick-actions"><button onClick={() => changeHabitProgress(habit.id, -state.step, key)} disabled={!scheduled || locked || value === 0} aria-label={`减少 ${state.step} ${state.unit}：${habit.title}`}>−</button><button onClick={() => changeHabitProgress(habit.id, state.step, key)} disabled={!scheduled || locked || percent === 100} aria-label={`增加 ${state.step} ${state.unit}：${habit.title}`}>+</button></div><div className="mini-progress"><i style={{ width: `${percent}%` }} /></div></article>; })}</div><article className="reflection glass-panel"><span>今日一句</span><blockquote>“不需要很厉害才开始，开始了才会慢慢变厉害。”</blockquote><div className="week-dots">{weekDays.map((key) => <div key={key}><i className={completionForDate(key) >= 60 ? 'filled' : ''} /><small>{shortWeekday(key)}</small></div>)}</div></article></aside>
 
       <nav className="mobile-nav glass-panel" aria-label="移动端导航">{navItems.slice(0, 2).map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><span>{item.short}</span>{item.label}</button>)}<button className="mobile-add" onClick={() => openAdd('task')} aria-label="快速添加">＋</button>{navItems.slice(2).map((item) => <button key={item.id} className={view === item.id ? 'active' : ''} onClick={() => navigate(item.id)}><span>{item.short}</span>{item.label}</button>)}</nav>
 
@@ -521,7 +615,7 @@ export default function Home() {
         </div>
       )}
 
-      {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title || '未命名习惯'}</h2><div className="editor-row habit-identity"><label>名称<input autoFocus value={habitEditor.title} onChange={(event) => setHabitEditor({ ...habitEditor, title: event.target.value })} /></label><label>图标字<input maxLength={2} value={habitEditor.icon} onChange={(event) => setHabitEditor({ ...habitEditor, icon: event.target.value })} /></label></div><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button type="button" key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row habit-target-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="1" value={habitEditor.target} onChange={(event) => setHabitEditor({ ...habitEditor, target: Math.max(1, Number(event.target.value) || 1) })} /></label><label>单位<input value={habitEditor.unit} onChange={(event) => setHabitEditor({ ...habitEditor, unit: event.target.value })} placeholder="次" /></label></div><button type="button" className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={() => void saveHabitSettings()}>保存设置</button><button type="button" className="delete-habit-button" onClick={() => void deleteHabit()}>删除习惯及历史记录</button></section></div>}
+      {habitEditor && <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setHabitEditor(null)}><section className="modal detail-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="habit-detail-title"><button className="modal-close" onClick={() => setHabitEditor(null)} aria-label="关闭">×</button><span className="section-label">习惯设置</span><h2 id="habit-detail-title">{habitEditor.title || '未命名习惯'}</h2><div className="editor-row habit-identity"><label>名称<input autoFocus value={habitEditor.title} onChange={(event) => setHabitEditor({ ...habitEditor, title: event.target.value })} /></label><label>图标字<input maxLength={2} value={habitEditor.icon} onChange={(event) => setHabitEditor({ ...habitEditor, icon: event.target.value })} /></label></div><div className="editor-group"><label>执行星期</label><div className="day-picker">{weekDayOptions.map((day) => <button type="button" key={day.value} className={habitEditor.days.includes(day.value) ? 'active' : ''} onClick={() => setHabitEditor((current) => current ? { ...current, days: current.days.includes(day.value) ? current.days.filter((value) => value !== day.value) : [...current.days, day.value] } : current)}>{day.label}</button>)}</div></div><div className="editor-row habit-target-row"><label>提醒时间<input type="time" value={habitEditor.reminder} onChange={(event) => setHabitEditor({ ...habitEditor, reminder: event.target.value })} /></label><label>每日目标<input type="number" min="0.01" step="any" value={habitEditor.target} onChange={(event) => changeHabitTarget(Number(event.target.value))} /></label><label>单位<input value={habitEditor.unit} onChange={(event) => changeHabitUnit(event.target.value)} placeholder="次" /></label><label>每次记录<input type="number" min="0.01" max={habitEditor.target} step="any" value={habitEditor.step} onChange={(event) => setHabitEditor({ ...habitEditor, step: Number(event.target.value) })} /></label></div><p className="habit-step-hint">点一次加减按钮，记录 {habitEditor.step || 0} {habitEditor.unit || '单位'}。修改目标或单位时，默认步长会自动调整。</p><button type="button" className={`pause-switch ${habitEditor.paused ? 'active' : ''}`} onClick={() => setHabitEditor({ ...habitEditor, paused: !habitEditor.paused })}><i />{habitEditor.paused ? '已暂停，点击恢复' : '正在执行，点击暂停'}</button><button className="submit-button" onClick={() => void saveHabitSettings()}>保存设置</button><button type="button" className="delete-habit-button" onClick={() => void deleteHabit()}>删除习惯及历史记录</button></section></div>}
 
       {dataModal && (
         <div className="modal-layer" role="presentation" onMouseDown={(event) => event.currentTarget === event.target && setDataModal(false)}>
@@ -529,10 +623,11 @@ export default function Home() {
             <button className="modal-close" onClick={() => setDataModal(false)} aria-label="关闭">×</button>
             <span className="section-label">数据与安装</span>
             <h2 id="data-title">你的微光，由你保管</h2>
-            <div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>无需注册账号；计划、习惯、待办和记录仅保存在当前设备。</span></div></div>
+            <div className={`sync-card ${syncState}`}><i /><div><strong>{syncCopy}</strong><span>{syncDescription}</span></div></div>
             <div className="data-actions">
               <button onClick={() => void exportData()}><b>导</b><span><strong>导出备份</strong><small>{isNative ? '通过系统分享保存 JSON' : '下载完整 JSON 数据'}</small></span></button>
-              <label><b>入</b><span><strong>恢复备份</strong><small>从此前文件恢复</small></span><input type="file" accept="application/json" onChange={(event) => void importData(event.target.files?.[0])} /></label>
+              <label><b>入</b><span><strong>恢复备份</strong><small>导入前会预览数量并保留恢复点</small></span><input type="file" accept="application/json" onChange={(event) => { const input = event.currentTarget; void importData(input.files?.[0]).finally(() => { input.value = ''; }); }} /></label>
+              {rollbackAvailable && <button onClick={() => void restoreImportRollback()}><b>撤</b><span><strong>撤销上次导入</strong><small>恢复导入前的计划与记录</small></span></button>}
               {installPrompt && <button onClick={() => void installApp()}><b>装</b><span><strong>安装应用</strong><small>像普通 App 一样打开</small></span></button>}
             </div>
             <p className="ios-hint">{isNative ? '在习惯设置中选择提醒时间，微光会按执行星期发送系统通知。' : 'Windows 可运行安装程序完成安装；iPhone Safari 可点“分享”→“添加到主屏幕”。'}</p>
@@ -551,3 +646,6 @@ export default function Home() {
 
 function EmptyState({ text, onAdd }: { text: string; onAdd: () => void }) { return <div className="empty"><div>＋</div><p>{text}</p><button onClick={onAdd}>添加第一项</button></div>; }
 function Metric({ label, value, note, tone }: { label: string; value: string; note: string; tone: string }) { return <article className="metric glass-panel"><i className={tone} /><span>{label}</span><strong>{value}</strong><small>{note}</small></article>; }
+function CompanionCard({ className, mood, message, note, pulse, onPet }: { className: string; mood: CompanionMood; message: string; note: string; pulse: number; onPet: () => void }) {
+  return <article className={`companion-card glass-panel ${className} mood-${mood}`}><div className="companion-glow" /><div className="companion-copy"><span className="companion-kicker"><i />微光伙伴</span><h2>小光</h2><p aria-live="polite">{message}</p><small>{note}</small></div><button className="companion-cat" onClick={onPet} aria-label="摸摸小光"><span className="cat-shadow" /><img key={pulse} src="/companion-xiaoguang.png" alt="小光，一只站着的橘色幼猫" /><span key={`spark-${pulse}`} className="cat-sparks" aria-hidden="true"><i>✦</i><i>·</i><i>✧</i></span></button></article>;
+}
