@@ -25,6 +25,13 @@ internal static class WindowsUpdateTests
     }
     private static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--msi")
+        {
+            WindowsUpdater.ValidateMsi(args[1], WindowsRelease.Version);
+            Reject(() => WindowsUpdater.ValidateMsi(args[1], "999.0.0"), "MSI version mismatch rejected");
+            Console.WriteLine("Production MSI identity/version check passed.");
+            return 0;
+        }
         if (args.Length == 2 && args[0] == "--live")
         {
             WindowsUpdateInfo release = WindowsUpdater.Parse(File.ReadAllText(args[1]));
@@ -38,10 +45,10 @@ internal static class WindowsUpdateTests
         Directory.CreateDirectory(root);
         try
         {
-            string url = WindowsRelease.Origin + "/windows/weiguang-0.3.0-aaaaaaaaaaaa.exe";
+            string url = WindowsRelease.Origin + "/windows/weiguang-0.3.0-aaaaaaaaaaaa.msi";
             Assert(WindowsUpdater.Parse(Feed(url)).version == "0.3.0", "valid release");
             Reject(() => WindowsUpdater.Parse(Feed(url.Replace("https:", "http:"))), "reject HTTP");
-            Reject(() => WindowsUpdater.Parse(Feed("https://example.com/windows/weiguang-0.3.0-aaaaaaaaaaaa.exe")), "reject different host");
+            Reject(() => WindowsUpdater.Parse(Feed("https://example.com/windows/weiguang-0.3.0-aaaaaaaaaaaa.msi")), "reject different host");
             Reject(() => WindowsUpdater.Parse(Feed(url + "?redirect=1")), "reject query");
             Reject(() => WindowsUpdater.Parse(Feed(url.Replace("/windows/", "/other/"))), "reject other path");
             Reject(() => WindowsUpdater.Parse("null"), "reject empty metadata");
@@ -54,24 +61,9 @@ internal static class WindowsUpdateTests
             Assert(WindowsUpdater.Verify(package, info), "valid hash");
             File.WriteAllText(package, "changed");
             Assert(!WindowsUpdater.Verify(package, info), "corruption rejected");
-            string old = Path.Combine(root, "installed"); string next = Path.Combine(root, "staged");
-            Seed(old, "old"); Seed(next, "new");
-            File.WriteAllText(Path.Combine(old, "personal-backup.json"), "keep me");
-            File.WriteAllText(Path.Combine(old, "app", "obsolete.js"), "old asset");
-            Reject(() => WindowsInstallTransaction.Apply(next, old, () => { throw new IOException("simulated health failure"); }), "health failure rollback");
-            Assert(File.ReadAllText(Path.Combine(old, "微光.exe")) == "old", "old executable restored");
-            Assert(File.Exists(Path.Combine(old, "app", "obsolete.js")), "old assets restored");
-            using (FileStream locked = new FileStream(Path.Combine(old, "微光.exe"), FileMode.Open, FileAccess.Read, FileShare.None))
-                Reject(() => WindowsInstallTransaction.Apply(next, old, () => {}), "file lock rollback");
-            Assert(File.ReadAllText(Path.Combine(old, "app", "index.html")) == "old", "partial replacement restored");
-            WindowsInstallTransaction.Apply(next, old, () => {});
-            Assert(File.ReadAllText(Path.Combine(old, "微光.exe")) == "new", "new executable installed");
-            Assert(!File.Exists(Path.Combine(old, "app", "obsolete.js")), "stale asset removed");
-            Assert(File.ReadAllText(Path.Combine(old, "personal-backup.json")) == "keep me", "unmanaged data preserved");
-            Assert(Directory.GetDirectories(old, ".weiguang-update-*").Length == 0, "successful cleanup");
-            string incomplete = Path.Combine(root, "incomplete"); Directory.CreateDirectory(incomplete);
-            Reject(() => WindowsInstallTransaction.Apply(incomplete, old, () => {}), "incomplete package rejected");
-            Assert(File.ReadAllText(Path.Combine(old, "微光.exe")) == "new", "incomplete update leaves current version intact");
+            Reject(() => WindowsUpdater.Parse(Feed(url.Replace(".msi", ".exe"))), "legacy executable rejected");
+            Reject(() => WindowsUpdater.Parse("{\"status\":\"suspended\"}"), "suspended feed rejected");
+            Reject(() => WindowsUpdater.ValidateMsi(package, "0.3.0"), "non-MSI rejected");
             Console.WriteLine("Windows updater: " + assertions + " assertions passed.");
             return 0;
         }

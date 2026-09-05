@@ -10,7 +10,7 @@ $version = $versionMatch.Groups[1].Value
 $webViewVersion = '1.0.4191.47'
 $archivePath = Join-Path $outputDirectory "weiguang-windows-$version.zip"
 $checksumPath = Join-Path $outputDirectory "weiguang-windows-$version.sha256.txt"
-$installerPath = Join-Path $outputDirectory "微光安装程序-$version.exe"
+$installerPath = Join-Path $outputDirectory "微光安装程序-$version.msi"
 $installerChecksumPath = Join-Path $outputDirectory "微光安装程序-$version.sha256.txt"
 $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
 $stageDirectory = [System.IO.Path]::GetFullPath((Join-Path $tempRoot ("weiguang-windows-" + [guid]::NewGuid().ToString('N'))))
@@ -34,7 +34,6 @@ try {
   }
 
   $sourcePath = Join-Path $projectRoot 'windows\WeiguangLauncher.cs'
-  $installerSourcePath = Join-Path $projectRoot 'windows\WeiguangInstaller.cs'
   $manifestPath = Join-Path $projectRoot 'windows\weiguang.manifest'
   $readmePath = Join-Path $projectRoot 'windows\WINDOWS_PACKAGE_README.txt'
   $pngPath = Join-Path $projectRoot 'public\icon-1024.png'
@@ -127,7 +126,6 @@ try {
   if (-not $compiler) { throw '未找到 Windows 自带的 C# 编译器。' }
 
   $updaterSource = Join-Path $projectRoot 'windows\WindowsUpdater.cs'
-  $transactionSource = Join-Path $projectRoot 'windows\WindowsInstallTransaction.cs'
   & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$exePath" $sourcePath $releaseSource $updaterSource
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
   $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
@@ -142,11 +140,10 @@ try {
   if (Test-Path -LiteralPath $installerChecksumPath) { Remove-Item -LiteralPath $installerChecksumPath -Force }
   Compress-Archive -Path (Join-Path $stageDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal
 
-  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$archivePath,WeiguangPayload.zip" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$installerPath" $installerSourcePath $releaseSource $transactionSource
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installerPath)) { throw '微光 Windows 安装程序编译失败。' }
-  $installerCheck = Start-Process -FilePath $installerPath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
-  if ($installerCheck.ExitCode -ne 0) { throw "微光 Windows 安装程序自检失败，退出码：$($installerCheck.ExitCode)" }
-  & (Join-Path $PSScriptRoot 'windows-update-e2e.ps1') -InstallerPath $installerPath
+  & (Join-Path $PSScriptRoot 'windows-msi.ps1') -StageDirectory $stageDirectory -IconPath $iconPath -Version $version -OutputPath $installerPath
+  & (Join-Path $PSScriptRoot 'windows-security-scan.ps1') -Paths @($stageDirectory, $installerPath, $archivePath) -ReportPath (Join-Path $outputDirectory "windows-security-$version.json")
+  & (Join-Path $PSScriptRoot 'windows-msi-test.ps1') -PackagePath $installerPath
+  & (Join-Path $PSScriptRoot 'windows-update-test.ps1') -MsiPath $installerPath
 
   function Write-Checksum([string]$Path, [string]$ChecksumFile) {
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
@@ -165,7 +162,7 @@ try {
   $installerHash = Write-Checksum $installerPath $installerChecksumPath
   $releaseDirectory = Join-Path $projectRoot 'public\windows'
   New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
-  $releaseFile = "weiguang-$version-$($installerHash.Substring(0, 12)).exe"
+  $releaseFile = "weiguang-$version-$($installerHash.Substring(0, 12)).msi"
   Copy-Item -LiteralPath $installerPath -Destination (Join-Path $releaseDirectory $releaseFile)
   $feed = [ordered]@{
     version = $version
@@ -174,7 +171,7 @@ try {
     size = (Get-Item -LiteralPath $installerPath).Length
     notes = (Get-Content -LiteralPath (Join-Path $projectRoot 'windows\RELEASE_NOTES.txt') -Raw).Trim()
   }
-  [System.IO.File]::WriteAllText((Join-Path $releaseDirectory 'latest.json'), ($feed | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
+  [System.IO.File]::WriteAllText((Join-Path $releaseDirectory 'latest-msi.json'), ($feed | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
   Write-Output "Windows 安装程序已生成：$installerPath"
   Write-Output "SHA-256：$installerHash"
   Write-Output "Windows 便携包已生成：$archivePath"

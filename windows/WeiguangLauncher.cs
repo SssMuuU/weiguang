@@ -367,25 +367,19 @@ internal sealed class WeiguangWindow : Form
             Progress<int> progress = new Progress<int>(value => { if (!IsDisposed) updateStatus.Text = "正在下载更新 " + value + "%"; });
             downloaded = await Task.Run(() => WindowsUpdater.Download(availableUpdate, value => ((IProgress<int>)progress).Report(value), closed.Token));
             if (IsDisposed) return;
-            updateStatus.Text = "下载完成，等待重启";
-            if (MessageBox.Show(this, "新版已下载并通过完整性校验。\n\n请先保存正在编辑的内容。现在更新并重启吗？个人记录会保留。", "更新微光", MessageBoxButtons.YesNo) != DialogResult.Yes) { updateStatus.Text = "已暂缓更新，可稍后重新下载"; return; }
+            updateStatus.Text = "下载完成，等待安装";
+            if (MessageBox.Show(this, "新版已下载并通过完整性校验。\n\n请先保存正在编辑的内容。微光将关闭并打开 Windows 安装向导；完成时勾选“打开微光”即可重新启动。个人记录会保留。\n\n现在继续吗？", "更新微光", MessageBoxButtons.YesNo) != DialogResult.Yes) { updateStatus.Text = "已暂缓更新，可稍后重新下载"; return; }
             webView.Enabled = false;
             string safe = await webView.CoreWebView2.ExecuteScriptAsync("document.documentElement.dataset.weiguangUpdateReady === 'true' && !document.querySelector('.modal-layer')");
             if (safe != "true") throw new IOException("请先关闭编辑窗口，并确认数据已保存，再尝试更新。");
-            string readyName = "Local\\WeiguangUpdateReady-" + Guid.NewGuid().ToString("N");
-            using (EventWaitHandle ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName))
-            using (Process helper = Process.Start(new ProcessStartInfo {
-                FileName = downloaded,
-                Arguments = "--update \"" + AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar) + "\" " + Process.GetCurrentProcess().Id + " " + readyName,
-                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath()
-            }))
-            {
-                // The helper validates/extracts before asking this process to exit.
-                bool prepared = await Task.Run(() => ready.WaitOne(60000));
-                if (!prepared || helper.HasExited) throw new IOException("更新准备未完成，当前应用未关闭。请稍后重试。");
-                downloaded = null; // Helper owns cleanup after it has signalled readiness.
-                Close();
-            }
+            // Windows Installer owns replacement and rollback; no downloaded EXE helper is run.
+            Process.Start(new ProcessStartInfo {
+                FileName = Path.Combine(Environment.SystemDirectory, "msiexec.exe"),
+                Arguments = "/i \"" + downloaded + "\" /norestart",
+                UseShellExecute = false, WorkingDirectory = Path.GetTempPath()
+            });
+            downloaded = null; // MSI needs its source until the installation UI finishes.
+            Close();
         }
         catch (Exception error) { if (!IsDisposed) { updateStatus.Text = "更新未完成，可重试"; MessageBox.Show(this, error.Message, "微光更新", MessageBoxButtons.OK, MessageBoxIcon.Information); } }
         finally

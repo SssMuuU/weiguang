@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -29,7 +30,7 @@ internal static class WindowsUpdater
             !Uri.TryCreate(info.url, UriKind.Absolute, out url) ||
             url.Scheme != "https" || url.Authority != new Uri(WindowsRelease.Origin).Authority ||
             url.UserInfo.Length != 0 || url.Query.Length != 0 || url.Fragment.Length != 0 ||
-            !Regex.IsMatch(url.AbsolutePath, @"^/windows/weiguang-[0-9.]+-[a-f0-9]{12}\.exe$") ||
+            !Regex.IsMatch(url.AbsolutePath, @"^/windows/weiguang-[0-9.]+-[a-f0-9]{12}\.msi$") ||
             !Regex.IsMatch(info.sha256 ?? "", @"^[a-fA-F0-9]{64}$") || info.size < 1024 || info.size > 100 * 1024 * 1024)
             throw new InvalidDataException("更新信息无效，已停止更新。");
         return info;
@@ -76,7 +77,7 @@ internal static class WindowsUpdater
 
     internal static string Download(WindowsUpdateInfo info, Action<int> progress, CancellationToken cancellation)
     {
-        string path = Path.Combine(Path.GetTempPath(), "weiguang-update-" + Guid.NewGuid().ToString("N") + ".exe");
+        string path = Path.Combine(Path.GetTempPath(), "weiguang-update-" + Guid.NewGuid().ToString("N") + ".msi");
         try
         {
             HttpWebRequest request = Request(info.url);
@@ -102,9 +103,46 @@ internal static class WindowsUpdater
             }
             cancellation.ThrowIfCancellationRequested();
             if (!Verify(path, info)) throw new InvalidDataException("更新包校验失败，原版本未改变。请稍后重试。");
-            if (FileVersionInfo.GetVersionInfo(path).FileVersion != info.version + ".0") throw new InvalidDataException("更新包版本与发布信息不符。");
+            ValidateMsi(path, info.version);
             return path;
         }
         catch { try { File.Delete(path); } catch { } throw; }
+    }
+
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    private static extern uint MsiOpenDatabase(string path, IntPtr persistence, out uint database);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    private static extern uint MsiDatabaseOpenView(uint database, string query, out uint view);
+    [DllImport("msi.dll")] private static extern uint MsiViewExecute(uint view, uint record);
+    [DllImport("msi.dll")] private static extern uint MsiViewFetch(uint view, out uint record);
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)]
+    private static extern uint MsiRecordGetString(uint record, uint field, StringBuilder value, ref uint length);
+    [DllImport("msi.dll")] private static extern uint MsiCloseHandle(uint handle);
+
+    internal static void ValidateMsi(string path, string version)
+    {
+        uint database = 0;
+        try
+        {
+            if (MsiOpenDatabase(path, IntPtr.Zero, out database) != 0) throw new InvalidDataException("无法读取 Windows 安装包。");
+            if (Property(database, "ProductVersion") != version || Property(database, "ProductName") != "微光" ||
+                !string.Equals(Property(database, "UpgradeCode"), WindowsRelease.UpgradeCode, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("安装包身份或版本与发布信息不符。");
+        }
+        finally { if (database != 0) MsiCloseHandle(database); }
+    }
+
+    private static string Property(uint database, string name)
+    {
+        uint view = 0, record = 0;
+        try
+        {
+            if (MsiDatabaseOpenView(database, "SELECT `Value` FROM `Property` WHERE `Property`='" + name + "'", out view) != 0 ||
+                MsiViewExecute(view, 0) != 0 || MsiViewFetch(view, out record) != 0) throw new InvalidDataException("安装包信息缺失。");
+            uint length = 255; StringBuilder value = new StringBuilder(256);
+            if (MsiRecordGetString(record, 1, value, ref length) != 0) throw new InvalidDataException("安装包信息无效。");
+            return value.ToString();
+        }
+        finally { if (record != 0) MsiCloseHandle(record); if (view != 0) MsiCloseHandle(view); }
     }
 }

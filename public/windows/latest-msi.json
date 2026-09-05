@@ -1,0 +1,7 @@
+{
+    "version":  "0.2.1",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.1-ed0f0eca62c7.msi",
+    "sha256":  "ed0f0eca62c793f405fde62399c38de096b7c1a4adceaae083a4ea7a1d459555",
+    "size":  4845568,
+    "notes":  "改用 Windows 标准 MSI 安装和升级，移除自制 EXE 解包安装器；保留应用内检查、下载与完整性校验，安装回退交给 Windows Installer，个人记录目录不变。旧 EXE 更新通道已停用。"
+}

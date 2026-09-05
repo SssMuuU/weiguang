@@ -6,7 +6,7 @@
 
 当前优先级：后续工作聚焦 Windows 版的功能、稳定性、安装更新和桌面交互优化。iOS 开发、真机验收与 TestFlight 推进暂时搁置；保留现有工程，待用户明确恢复后继续。
 
-Windows 发布约定：0.2.0 起接入应用内更新。每次 Windows 发布必须提升 `windows/WindowsRelease.cs` 版本号、更新发行说明、执行 `npm run windows:package` 并将生成的更新清单与安装包一起发布到现有官网。只发布网页不会更新 Windows 离线版。旧版本首次需覆盖安装一次，不需要卸载。启动自动检查，用户确认后下载、校验、更新并重启；核心功能继续离线可用，数据目录保持不变。详见 WINDOWS_SETUP.md。
+Windows 发布约定：0.2.0 自制 EXE 安装器因 Defender 告警撤回，旧 latest.json 通道保持停用。0.2.1 起使用标准 MSI 安装与 latest-msi.json 更新通道，不再运行自制解包/替换/卸载助手。每次发版提升 WindowsRelease.cs 版本，执行包含 Defender 扫描及 MSI 安装/升级/失败回退/卸载测试的 windows:package，再发布通过验证的 MSI 与清单。安全扫描失败不得恢复下载；不能要求用户关闭防护。数据目录不变，详情见 WINDOWS_SETUP.md。
 
 ## 1. 产品愿景
 
