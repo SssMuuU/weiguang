@@ -4,6 +4,7 @@
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" Platform="x64" SummaryCodepage="936" />
     <MajorUpgrade Schedule="afterInstallExecute" DowngradeErrorMessage="已安装更新版本，请勿降级。" />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+    <Property Id="LIMITUI" Value="1" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
     <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
     <Property Id="INSTALLFOLDER" Secure="yes">

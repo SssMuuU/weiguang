@@ -126,6 +126,7 @@ internal static class WindowsUpdater
         {
             if (MsiOpenDatabase(path, IntPtr.Zero, out database) != 0) throw new InvalidDataException("无法读取 Windows 安装包。");
             if (Property(database, "ProductVersion") != version || Property(database, "ProductName") != "微光" ||
+                Property(database, "LIMITUI") != "1" || Property(database, "ARPNOMODIFY") != "1" ||
                 !string.Equals(Property(database, "UpgradeCode"), WindowsRelease.UpgradeCode, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("安装包身份或版本与发布信息不符。");
         }
