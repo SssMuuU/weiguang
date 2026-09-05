@@ -39,3 +39,4 @@ next-env.d.ts
 /work/
 /.npm-cache/
 /mobile-dist/
+/.codex-site-package.tar.gz

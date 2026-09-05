@@ -1,0 +1,7 @@
+{
+    "version":  "0.2.0",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.0-af1c8dcf3d5e.exe",
+    "sha256":  "af1c8dcf3d5edeb98e7cafd4fca380984745fa4ba6689c2079572edc0e4517a6",
+    "size":  4608512,
+    "notes":  "支持 Windows 应用内检查与下载更新，确认后更新并重启；更新包完整性校验、失败恢复旧版，保留本机计划与习惯记录。"
+}

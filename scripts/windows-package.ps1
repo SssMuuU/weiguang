@@ -1,8 +1,12 @@
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+& (Join-Path $PSScriptRoot 'windows-update-test.ps1')
 $outputDirectory = Join-Path $projectRoot 'outputs'
-$version = '0.1.0'
+$releaseSource = Join-Path $projectRoot 'windows\WindowsRelease.cs'
+$versionMatch = [regex]::Match((Get-Content -LiteralPath $releaseSource -Raw), 'const string Version = "(\d+\.\d+\.\d+)"')
+if (-not $versionMatch.Success) { throw 'Windows 版本号无效。' }
+$version = $versionMatch.Groups[1].Value
 $webViewVersion = '1.0.4191.47'
 $archivePath = Join-Path $outputDirectory "weiguang-windows-$version.zip"
 $checksumPath = Join-Path $outputDirectory "weiguang-windows-$version.sha256.txt"
@@ -59,6 +63,7 @@ try {
   Copy-Item -LiteralPath (Join-Path $projectRoot 'public\sw.js') -Destination $appDirectory -Force
   Copy-Item -LiteralPath (Join-Path $projectRoot 'public\manifest.webmanifest') -Destination $appDirectory -Force
   Copy-Item -LiteralPath $pngPath -Destination $appDirectory -Force
+  Get-ChildItem -LiteralPath (Join-Path $projectRoot 'public') -File | Where-Object { $_.Extension -in '.png', '.svg', '.ico' } | Copy-Item -Destination $appDirectory
   Copy-Item -LiteralPath $webViewCore -Destination $stageDirectory -Force
   Copy-Item -LiteralPath $webViewWinForms -Destination $stageDirectory -Force
   Copy-Item -LiteralPath $webViewLoader -Destination $stageDirectory -Force
@@ -121,7 +126,9 @@ try {
   $compiler = $compilerCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
   if (-not $compiler) { throw '未找到 Windows 自带的 C# 编译器。' }
 
-  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$exePath" $sourcePath
+  $updaterSource = Join-Path $projectRoot 'windows\WindowsUpdater.cs'
+  $transactionSource = Join-Path $projectRoot 'windows\WindowsInstallTransaction.cs'
+  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$exePath" $sourcePath $releaseSource $updaterSource
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
   $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($checkProcess.ExitCode -ne 0) { throw "微光 Windows 离线包自检失败，退出码：$($checkProcess.ExitCode)" }
@@ -135,10 +142,11 @@ try {
   if (Test-Path -LiteralPath $installerChecksumPath) { Remove-Item -LiteralPath $installerChecksumPath -Force }
   Compress-Archive -Path (Join-Path $stageDirectory '*') -DestinationPath $archivePath -CompressionLevel Optimal
 
-  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$archivePath,WeiguangPayload.zip" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$installerPath" $installerSourcePath
+  & $compiler /nologo /target:winexe /optimize+ /reference:System.Windows.Forms.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/resource:$archivePath,WeiguangPayload.zip" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$installerPath" $installerSourcePath $releaseSource $transactionSource
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $installerPath)) { throw '微光 Windows 安装程序编译失败。' }
   $installerCheck = Start-Process -FilePath $installerPath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($installerCheck.ExitCode -ne 0) { throw "微光 Windows 安装程序自检失败，退出码：$($installerCheck.ExitCode)" }
+  & (Join-Path $PSScriptRoot 'windows-update-e2e.ps1') -InstallerPath $installerPath
 
   function Write-Checksum([string]$Path, [string]$ChecksumFile) {
     $sha256 = [System.Security.Cryptography.SHA256]::Create()
@@ -155,6 +163,18 @@ try {
 
   $hash = Write-Checksum $archivePath $checksumPath
   $installerHash = Write-Checksum $installerPath $installerChecksumPath
+  $releaseDirectory = Join-Path $projectRoot 'public\windows'
+  New-Item -ItemType Directory -Path $releaseDirectory -Force | Out-Null
+  $releaseFile = "weiguang-$version-$($installerHash.Substring(0, 12)).exe"
+  Copy-Item -LiteralPath $installerPath -Destination (Join-Path $releaseDirectory $releaseFile)
+  $feed = [ordered]@{
+    version = $version
+    url = "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/$releaseFile"
+    sha256 = $installerHash
+    size = (Get-Item -LiteralPath $installerPath).Length
+    notes = (Get-Content -LiteralPath (Join-Path $projectRoot 'windows\RELEASE_NOTES.txt') -Raw).Trim()
+  }
+  [System.IO.File]::WriteAllText((Join-Path $releaseDirectory 'latest.json'), ($feed | ConvertTo-Json), [System.Text.UTF8Encoding]::new($false))
   Write-Output "Windows 安装程序已生成：$installerPath"
   Write-Output "SHA-256：$installerHash"
   Write-Output "Windows 便携包已生成：$archivePath"

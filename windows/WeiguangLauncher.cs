@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -7,6 +8,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -14,8 +16,6 @@ using Microsoft.Web.WebView2.WinForms;
 [assembly: AssemblyTitle("微光")]
 [assembly: AssemblyProduct("微光")]
 [assembly: AssemblyDescription("计划、习惯与待办")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
 
 internal static class WeiguangLauncher
 {
@@ -41,6 +41,13 @@ internal static class WeiguangLauncher
             if (args.Length > 0 && args[0] == "--check") return CheckPackage();
             if (args.Length > 0 && args[0] == "--self-test") return SelfTest();
             if (args.Length > 0 && args[0] == "--dpi-check") return IsPerMonitorV2Aware() ? 0 : 6;
+
+            bool canStart;
+            using (Mutex update = new Mutex(true, WindowsRelease.UpdateMutex, out canStart))
+            {
+                if (!canStart) { MessageBox.Show("微光正在更新，请稍候再打开。", "微光"); return 4; }
+                update.ReleaseMutex();
+            }
 
             int check = CheckPackage();
             if (check != 0)
@@ -261,6 +268,11 @@ internal sealed class WeiguangWindow : Form
     private readonly string appUrl;
     private readonly WebView2 webView;
     private readonly Label loadingLabel;
+    private readonly ToolStripStatusLabel updateStatus = new ToolStripStatusLabel();
+    private readonly ToolStripDropDownButton updateButton = new ToolStripDropDownButton("检查更新");
+    private WindowsUpdateInfo availableUpdate;
+    private bool updating;
+    private readonly CancellationTokenSource closed = new CancellationTokenSource();
 
     internal WeiguangWindow(string url)
     {
@@ -289,6 +301,16 @@ internal sealed class WeiguangWindow : Form
         };
         Controls.Add(webView);
         Controls.Add(loadingLabel);
+        StatusStrip status = new StatusStrip { SizingGrip = false };
+        status.Items.Add(new ToolStripStatusLabel("微光 " + WindowsRelease.Version));
+        updateStatus.Spring = true;
+        updateStatus.TextAlign = ContentAlignment.MiddleRight;
+        status.Items.Add(updateStatus);
+        status.Items.Add(updateButton);
+        updateButton.ShowDropDownArrow = false;
+        updateButton.Click += async (sender, args) => { if (availableUpdate == null) await CheckUpdate(true); else await InstallUpdate(); };
+        Controls.Add(status);
+        FormClosed += (sender, args) => { closed.Cancel(); webView.Dispose(); };
         Shown += OnShown;
     }
 
@@ -306,10 +328,71 @@ internal sealed class WeiguangWindow : Form
             webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
             webView.Source = new Uri(appUrl);
             loadingLabel.Visible = false;
+            await CheckUpdate(false);
         }
         catch (Exception error)
         {
             loadingLabel.Text = "微光未能打开\n\n" + error.Message;
+        }
+    }
+
+    private async Task CheckUpdate(bool manual)
+    {
+        if (updating) return;
+        updating = true; updateButton.Enabled = false; updateStatus.Text = "正在检查更新…";
+        try
+        {
+            availableUpdate = await Task.Run(() => WindowsUpdater.Check());
+            if (IsDisposed) return;
+            updateStatus.Text = availableUpdate == null ? "已是最新版本" : "发现新版 " + availableUpdate.version;
+            updateButton.Text = availableUpdate == null ? "检查更新" : "下载更新";
+        }
+        catch
+        {
+            if (IsDisposed) return;
+            updateStatus.Text = "暂时无法检查更新，不影响使用";
+            if (manual) MessageBox.Show(this, "暂时无法连接更新服务，请检查网络后重试。当前版本仍可正常使用。", "微光");
+        }
+        finally { updating = false; if (!IsDisposed) updateButton.Enabled = true; }
+    }
+
+    private async Task InstallUpdate()
+    {
+        if (updating || availableUpdate == null) return;
+        if (MessageBox.Show(this, "发现微光 " + availableUpdate.version + "\n\n" + (availableUpdate.notes ?? "体验与稳定性改进") + "\n\n现在下载吗？下载期间可继续使用。", "更新微光", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+        updating = true; updateButton.Enabled = false;
+        string downloaded = null;
+        try
+        {
+            Progress<int> progress = new Progress<int>(value => { if (!IsDisposed) updateStatus.Text = "正在下载更新 " + value + "%"; });
+            downloaded = await Task.Run(() => WindowsUpdater.Download(availableUpdate, value => ((IProgress<int>)progress).Report(value), closed.Token));
+            if (IsDisposed) return;
+            updateStatus.Text = "下载完成，等待重启";
+            if (MessageBox.Show(this, "新版已下载并通过完整性校验。\n\n请先保存正在编辑的内容。现在更新并重启吗？个人记录会保留。", "更新微光", MessageBoxButtons.YesNo) != DialogResult.Yes) { updateStatus.Text = "已暂缓更新，可稍后重新下载"; return; }
+            webView.Enabled = false;
+            string safe = await webView.CoreWebView2.ExecuteScriptAsync("document.documentElement.dataset.weiguangUpdateReady === 'true' && !document.querySelector('.modal-layer')");
+            if (safe != "true") throw new IOException("请先关闭编辑窗口，并确认数据已保存，再尝试更新。");
+            string readyName = "Local\\WeiguangUpdateReady-" + Guid.NewGuid().ToString("N");
+            using (EventWaitHandle ready = new EventWaitHandle(false, EventResetMode.ManualReset, readyName))
+            using (Process helper = Process.Start(new ProcessStartInfo {
+                FileName = downloaded,
+                Arguments = "--update \"" + AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar) + "\" " + Process.GetCurrentProcess().Id + " " + readyName,
+                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = Path.GetTempPath()
+            }))
+            {
+                // The helper validates/extracts before asking this process to exit.
+                bool prepared = await Task.Run(() => ready.WaitOne(60000));
+                if (!prepared || helper.HasExited) throw new IOException("更新准备未完成，当前应用未关闭。请稍后重试。");
+                downloaded = null; // Helper owns cleanup after it has signalled readiness.
+                Close();
+            }
+        }
+        catch (Exception error) { if (!IsDisposed) { updateStatus.Text = "更新未完成，可重试"; MessageBox.Show(this, error.Message, "微光更新", MessageBoxButtons.OK, MessageBoxIcon.Information); } }
+        finally
+        {
+            if (downloaded != null) try { File.Delete(downloaded); } catch { }
+            updating = false;
+            if (!IsDisposed) { webView.Enabled = true; updateButton.Enabled = true; }
         }
     }
 

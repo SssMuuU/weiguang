@@ -18,7 +18,7 @@ self.addEventListener('message', (event) => {
   const urls = Array.from(new Set(event.data.urls)).filter((value) => {
     try {
       const url = new URL(value, self.location.origin);
-      return url.origin === self.location.origin && !url.pathname.startsWith('/api/');
+      return url.origin === self.location.origin && !url.pathname.startsWith('/api/') && !url.pathname.startsWith('/windows/');
     } catch {
       return false;
     }
@@ -35,7 +35,7 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
-  if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+  if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/windows/')) return;
 
   event.respondWith(
     fetch(request)

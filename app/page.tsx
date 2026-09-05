@@ -162,6 +162,12 @@ function nativeSuccess() {
 async function registerOfflineApp() {
   if (!('serviceWorker' in navigator)) return;
   try {
+    if (window.location.hostname === '127.0.0.1' && window.location.port === '17895') {
+      // Windows carries its own offline bundle. Old web caches must not mask a native update.
+      await Promise.all((await navigator.serviceWorker.getRegistrations()).map((registration) => registration.unregister()));
+      await Promise.all((await caches.keys()).filter((key) => key.startsWith('weiguang-')).map((key) => caches.delete(key)));
+      return;
+    }
     const registration = await navigator.serviceWorker.register('/sw.js');
     await navigator.serviceWorker.ready;
     const urls = [window.location.href, ...performance.getEntriesByType('resource').map((entry) => entry.name)];
@@ -254,6 +260,11 @@ export default function Home() {
     saveQueue.current = operation;
     void operation.then(() => { if (saveSequence.current === sequence) setSyncState('saved'); }).catch(() => { if (saveSequence.current === sequence) setSyncState('error'); });
   }, [snapshot, ready, isNative, welcome]);
+
+  useEffect(() => {
+    document.documentElement.dataset.weiguangUpdateReady = String(ready && syncState === 'saved');
+    return () => { delete document.documentElement.dataset.weiguangUpdateReady; };
+  }, [ready, syncState]);
 
   useEffect(() => {
     if (!welcome && !modal && !dataModal && selectedPlanId === null && !taskEditorOpen && !habitEditorOpen) return;

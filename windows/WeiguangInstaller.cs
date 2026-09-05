@@ -13,14 +13,13 @@ using Microsoft.Win32;
 [assembly: AssemblyTitle("微光安装程序")]
 [assembly: AssemblyProduct("微光")]
 [assembly: AssemblyDescription("微光 Windows 安装程序")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
 
 internal static class WeiguangInstaller
 {
     private const string PayloadName = "WeiguangPayload.zip";
     private const string UninstallKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Weiguang";
     private const int MoveFileDelayUntilReboot = 0x4;
+    private static string restartLauncher;
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileEx(string existingFileName, string newFileName, int flags);
 
@@ -33,7 +32,17 @@ internal static class WeiguangInstaller
             if (args.Length > 0 && args[0] == "--self-test") return SelfTest();
             if (args.Length > 0 && args[0] == "--uninstall") return Uninstall();
             if (args.Length > 1 && args[0] == "--remove") return RemoveInstalledFiles(args[1]);
-            return Install();
+            bool ownsUpdate;
+            using (Mutex update = new Mutex(true, WindowsRelease.UpdateMutex, out ownsUpdate))
+            {
+                if (!ownsUpdate) throw new IOException("另一个微光安装或更新操作正在进行。");
+                try { return (args.Length == 4 || (args.Length == 5 && args[4] == "--no-restart")) && args[0] == "--update" ? Update(args) : Install(); }
+                finally
+                {
+                    update.ReleaseMutex();
+                    if (restartLauncher != null) Process.Start(new ProcessStartInfo { FileName = restartLauncher, UseShellExecute = false });
+                }
+            }
         }
         catch (Exception error)
         {
@@ -90,14 +99,12 @@ internal static class WeiguangInstaller
             string stagedLauncher = Path.Combine(tempDirectory, "微光.exe");
             if (!File.Exists(stagedLauncher)) throw new InvalidDataException("安装文件不完整。请重新下载安装程序。");
 
-            Directory.CreateDirectory(installDirectory);
-            string installedApp = Path.Combine(installDirectory, "app");
-            if (Directory.Exists(installedApp)) Directory.Delete(installedApp, true);
-            CopyDirectory(tempDirectory, installDirectory);
+            File.Copy(Assembly.GetExecutingAssembly().Location, Path.Combine(tempDirectory, "卸载微光.exe"));
+            ValidateLauncher(tempDirectory);
+            WindowsInstallTransaction.Apply(tempDirectory, installDirectory, () => ValidateLauncher(installDirectory));
 
             string installedLauncher = Path.Combine(installDirectory, "微光.exe");
             string installedUninstaller = Path.Combine(installDirectory, "卸载微光.exe");
-            File.Copy(Assembly.GetExecutingAssembly().Location, installedUninstaller, true);
             CreateShortcuts(installedLauncher, installDirectory);
             RegisterUninstaller(installedLauncher, installedUninstaller, installDirectory);
 
@@ -115,6 +122,72 @@ internal static class WeiguangInstaller
         finally
         {
             if (Directory.Exists(tempDirectory)) Directory.Delete(tempDirectory, true);
+        }
+    }
+
+    private static void ValidateLauncher(string directory)
+    {
+        using (Process check = Process.Start(new ProcessStartInfo {
+            FileName = Path.Combine(directory, "微光.exe"), Arguments = "--self-test",
+            UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = directory
+        }))
+        {
+            if (!check.WaitForExit(20000)) { check.Kill(); throw new IOException("新版启动自检超时。"); }
+            if (check.ExitCode != 0) throw new IOException("新版启动自检失败。");
+        }
+    }
+
+    private static int Update(string[] args)
+    {
+        string directory = Path.GetFullPath(args[1]);
+        string launcher = Path.Combine(directory, "微光.exe");
+        string staging = Path.Combine(Path.GetTempPath(), "weiguang-install-" + Guid.NewGuid().ToString("N"));
+        int parentId;
+        if (!int.TryParse(args[2], out parentId) || !args[3].StartsWith("Local\\WeiguangUpdateReady-", StringComparison.Ordinal) || !File.Exists(launcher))
+            throw new IOException("更新请求无效。");
+        if (FileVersionInfo.GetVersionInfo(launcher).ProductName != "微光" ||
+            new Version(FileVersionInfo.GetVersionInfo(launcher).FileVersion) >= new Version(WindowsRelease.AssemblyVersion))
+            throw new IOException("仅允许从旧版升级，请重新检查更新。");
+        bool parentExited = false;
+        try
+        {
+            using (Process parent = Process.GetProcessById(parentId))
+            using (EventWaitHandle ready = EventWaitHandle.OpenExisting(args[3]))
+            {
+                if (!string.Equals(Path.GetFullPath(parent.MainModule.FileName), launcher, StringComparison.OrdinalIgnoreCase)) throw new IOException("更新目标与当前应用不一致。");
+                Directory.CreateDirectory(staging);
+                ExtractPayload(staging);
+                File.Copy(Assembly.GetExecutingAssembly().Location, Path.Combine(staging, "卸载微光.exe"));
+                ValidateLauncher(staging);
+                ready.Set();
+                if (!parent.WaitForExit(30000)) throw new IOException("当前应用仍在运行，更新已取消。");
+                parentExited = true;
+            }
+            Thread.Sleep(1000); // Allow WebView2 child processes to release loaded files.
+            bool ownsInstance;
+            using (Mutex instance = new Mutex(true, "Local\\WeiguangDesktopApp", out ownsInstance))
+            {
+                if (!ownsInstance) throw new IOException("微光又被打开了，请关闭后重试更新。");
+                try { WindowsInstallTransaction.Apply(staging, directory, () => ValidateLauncher(directory)); }
+                finally { instance.ReleaseMutex(); }
+            }
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UninstallKey, true))
+            {
+                if (key != null && string.Equals(key.GetValue("InstallLocation") as string, directory, StringComparison.OrdinalIgnoreCase)) key.SetValue("DisplayVersion", WindowsRelease.Version);
+            }
+            return 0;
+        }
+        finally
+        {
+            try { if (Directory.Exists(staging)) Directory.Delete(staging, true); } catch { }
+            // Release the update lock before the relaunched app checks it.
+            if (parentExited)
+            {
+                if (args.Length == 4 && File.Exists(launcher)) restartLauncher = launcher;
+            }
+            string helperPath = Path.GetFullPath(Assembly.GetExecutingAssembly().Location);
+            if (helperPath.StartsWith(Path.GetFullPath(Path.GetTempPath()), StringComparison.OrdinalIgnoreCase) && Path.GetFileName(helperPath).StartsWith("weiguang-update-", StringComparison.Ordinal))
+                MoveFileEx(helperPath, null, MoveFileDelayUntilReboot);
         }
     }
 
@@ -236,7 +309,7 @@ internal static class WeiguangInstaller
         using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UninstallKey))
         {
             key.SetValue("DisplayName", "微光");
-            key.SetValue("DisplayVersion", "0.1.0");
+            key.SetValue("DisplayVersion", WindowsRelease.Version);
             key.SetValue("Publisher", "微光");
             key.SetValue("DisplayIcon", launcher);
             key.SetValue("InstallLocation", installDirectory);
