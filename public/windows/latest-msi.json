@@ -1,7 +1,7 @@
 {
-    "version":  "0.2.1",
-    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.1-ed0f0eca62c7.msi",
-    "sha256":  "ed0f0eca62c793f405fde62399c38de096b7c1a4adceaae083a4ea7a1d459555",
-    "size":  4845568,
-    "notes":  "改用 Windows 标准 MSI 安装和升级，移除自制 EXE 解包安装器；保留应用内检查、下载与完整性校验，安装回退交给 Windows Installer，个人记录目录不变。旧 EXE 更新通道已停用。"
+    "version":  "0.2.2",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.2-3e4fceabb274.msi",
+    "sha256":  "3e4fceabb274a4f62ff231b032582849d92d5f4193a86b5a3e54a18671590791",
+    "size":  4849664,
+    "notes":  "习惯进度升级为连续状态：可显示未开始、进行中百分比、已完成与超额完成，完成目标后仍可继续记录；每日和回顾汇总会计入部分进度，并将单项贡献封顶在 100%。同时保留 Windows 标准 MSI 原位升级与数据目录。"
 }

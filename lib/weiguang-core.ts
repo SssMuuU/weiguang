@@ -8,6 +8,8 @@ export type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: P
 export type LocalReadResult = { snapshot: AppSnapshot; firstRun: boolean };
 export type CompanionMood = 'sleepy' | 'waiting' | 'curious' | 'bright' | 'celebrate';
 export type CompanionState = { mood: CompanionMood; message: string };
+export type HabitProgressStatus = 'not-started' | 'in-progress' | 'complete' | 'exceeded';
+export type HabitProgress = { percent: number; cappedPercent: number; status: HabitProgressStatus; label: string };
 
 export const everyDay = [1, 2, 3, 4, 5, 6, 0];
 
@@ -44,10 +46,21 @@ export function sanitizeHabitStep(step: number, target: number, unit: string) {
   const safeStep = Number.isFinite(step) && step > 0 ? step : recommendedHabitStep(safeTarget, unit);
   return Math.min(safeTarget, safeStep);
 }
-export function changeHabitValue(current: number, amount: number, target: number) {
+export function changeHabitValue(current: number, amount: number) {
   const safeCurrent = Number.isFinite(current) ? current : 0;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  const nextValue = safeCurrent + safeAmount;
+  if (!Number.isFinite(nextValue)) return safeCurrent;
+  return Math.round(Math.max(0, nextValue) * 10000) / 10000;
+}
+export function habitProgress(value: number, target: number): HabitProgress {
+  const safeValue = Number.isFinite(value) ? Math.max(0, value) : 0;
   const safeTarget = Number.isFinite(target) && target > 0 ? target : 1;
-  return Math.round(Math.max(0, Math.min(safeTarget, safeCurrent + amount)) * 10000) / 10000;
+  const percent = Math.max(0, Math.round((safeValue / safeTarget) * 100));
+  if (percent === 0) return { percent, cappedPercent: 0, status: 'not-started', label: '未开始' };
+  if (percent < 100) return { percent, cappedPercent: percent, status: 'in-progress', label: `进行中 ${percent}%` };
+  if (percent === 100) return { percent, cappedPercent: 100, status: 'complete', label: '已完成 100%' };
+  return { percent, cappedPercent: 100, status: 'exceeded', label: `超额完成 ${percent}%` };
 }
 export function habitRevisionFor(habit: Habit, dateKey: string): HabitRevision {
   const fallback = { effectiveFrom: '0001-01-01', target: habit.target, step: habit.step, unit: habit.unit, days: habit.days, paused: habit.paused };

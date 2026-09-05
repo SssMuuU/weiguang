@@ -10,6 +10,7 @@ import {
   getPreviousMonthToDateKeys,
   getWeekKeys,
   habitRevisionFor,
+  habitProgress,
   moveTaskCompletion,
   nextMilestoneCopy,
   normalizeSnapshot,
@@ -97,11 +98,18 @@ test('习惯记录量会根据目标和单位给出合理默认值', () => {
   assert.equal(recommendedHabitStep(10000, '步'), 1000);
 });
 
-test('习惯进度不会超出目标或低于零，且小数记录不会产生浮点尾数', () => {
-  assert.equal(changeHabitValue(1750, 250, 2000), 2000);
-  assert.equal(changeHabitValue(1900, 250, 2000), 2000);
-  assert.equal(changeHabitValue(100, -250, 2000), 0);
-  assert.equal(changeHabitValue(0.2, 0.1, 1), 0.3);
+test('习惯记录允许超额完成、不会低于零，且小数记录不会产生浮点尾数', () => {
+  assert.equal(changeHabitValue(1750, 250), 2000);
+  assert.equal(changeHabitValue(1900, 250), 2150);
+  assert.equal(changeHabitValue(100, -250), 0);
+  assert.equal(changeHabitValue(0.2, 0.1), 0.3);
+});
+
+test('习惯进度可区分未开始、进行中、完成和超额完成', () => {
+  assert.deepEqual(habitProgress(0, 2000), { percent: 0, cappedPercent: 0, status: 'not-started', label: '未开始' });
+  assert.deepEqual(habitProgress(1000, 2000), { percent: 50, cappedPercent: 50, status: 'in-progress', label: '进行中 50%' });
+  assert.deepEqual(habitProgress(2000, 2000), { percent: 100, cappedPercent: 100, status: 'complete', label: '已完成 100%' });
+  assert.deepEqual(habitProgress(2500, 2000), { percent: 125, cappedPercent: 100, status: 'exceeded', label: '超额完成 125%' });
 });
 
 test('待办改期会迁移完成状态且不会产生重复 ID', () => {
