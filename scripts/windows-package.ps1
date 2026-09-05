@@ -34,10 +34,12 @@ try {
   }
 
   $sourcePath = Join-Path $projectRoot 'windows\WeiguangLauncher.cs'
+  $helperSourcePath = Join-Path $projectRoot 'windows\WeiguangUpdateHelper.cs'
   $manifestPath = Join-Path $projectRoot 'windows\weiguang.manifest'
   $readmePath = Join-Path $projectRoot 'windows\WINDOWS_PACKAGE_README.txt'
   $pngPath = Join-Path $projectRoot 'public\icon-1024.png'
   $exePath = Join-Path $stageDirectory '微光.exe'
+  $helperPath = Join-Path $stageDirectory '微光更新助手.exe'
   $appDirectory = Join-Path $stageDirectory 'app'
   $dependencyBase = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'work\webview2'))
   $webViewRoot = [System.IO.Path]::GetFullPath((Join-Path $dependencyBase $webViewVersion))
@@ -128,6 +130,10 @@ try {
   $updaterSource = Join-Path $projectRoot 'windows\WindowsUpdater.cs'
   & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll "/reference:$webViewCore" "/reference:$webViewWinForms" "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$exePath" $sourcePath $releaseSource $updaterSource
   if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw '微光 Windows 启动器编译失败。' }
+  & $compiler /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll "/win32icon:$iconPath" "/win32manifest:$manifestPath" "/out:$helperPath" $helperSourcePath $releaseSource
+  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $helperPath)) { throw '微光 Windows 更新助手编译失败。' }
+  $helperCheck = Start-Process -FilePath $helperPath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
+  if ($helperCheck.ExitCode -ne 0) { throw "微光 Windows 更新助手自检失败，退出码：$($helperCheck.ExitCode)" }
   $checkProcess = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WindowStyle Hidden -Wait -PassThru
   if ($checkProcess.ExitCode -ne 0) { throw "微光 Windows 离线包自检失败，退出码：$($checkProcess.ExitCode)" }
   $dpiCheckProcess = Start-Process -FilePath $exePath -ArgumentList '--dpi-check' -WindowStyle Hidden -Wait -PassThru
@@ -143,6 +149,7 @@ try {
   & (Join-Path $PSScriptRoot 'windows-msi.ps1') -StageDirectory $stageDirectory -IconPath $iconPath -Version $version -OutputPath $installerPath
   & (Join-Path $PSScriptRoot 'windows-security-scan.ps1') -Paths @($stageDirectory, $installerPath, $archivePath) -ReportPath (Join-Path $outputDirectory "windows-security-$version.json")
   & (Join-Path $PSScriptRoot 'windows-msi-test.ps1') -PackagePath $installerPath
+  & (Join-Path $PSScriptRoot 'windows-msi-test.ps1') -PackagePath $installerPath -TestBaseDirectory (Join-Path $projectRoot 'work')
   & (Join-Path $PSScriptRoot 'windows-update-test.ps1') -MsiPath $installerPath
 
   function Write-Checksum([string]$Path, [string]$ChecksumFile) {

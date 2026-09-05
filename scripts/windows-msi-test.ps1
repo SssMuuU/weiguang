@@ -1,7 +1,12 @@
-param([Parameter(Mandatory = $true)][string]$PackagePath)
+param(
+  [Parameter(Mandatory = $true)][string]$PackagePath,
+  [string]$TestBaseDirectory = [IO.Path]::GetTempPath()
+)
 $ErrorActionPreference = 'Stop'
 $PackagePath = [IO.Path]::GetFullPath($PackagePath)
-$testRoot = Join-Path ([IO.Path]::GetTempPath()) ('weiguang-msi-test-' + [Guid]::NewGuid().ToString('N'))
+$testBase = [IO.Path]::GetFullPath($TestBaseDirectory)
+New-Item -ItemType Directory -Path $testBase -Force | Out-Null
+$testRoot = Join-Path $testBase ('weiguang-msi-test-' + [Guid]::NewGuid().ToString('N'))
 $testName = 'WeiguangMsiTest' + [Guid]::NewGuid().ToString('N')
 $testUpgrade = [Guid]::NewGuid().ToString('B').ToUpperInvariant()
 $testProducts = @([Guid]::NewGuid().ToString('B').ToUpperInvariant(), [Guid]::NewGuid().ToString('B').ToUpperInvariant())
@@ -100,6 +105,8 @@ try {
   Run-Msi ('/i "' + $testRoot + '\test-1.0.0.msi" /qn /norestart INSTALLFOLDER="' + $installed + '" /l*v "' + $testRoot + '\downgrade.log"') @(1603)
   Run-Msi ('/x ' + $testProducts[1] + ' /qn /norestart /l*v "' + $testRoot + '\uninstall.log"')
   if ([IO.File]::ReadAllText($sentinel) -ne 'preserve personal data') { throw '卸载删除了非应用数据。' }
+  $permissionErrors = Get-ChildItem -LiteralPath $testRoot -Filter '*.log' -File | Select-String -Pattern 'Error 1926|错误 1926|Config\.Msi.+(?:Error|错误): 5'
+  if ($permissionErrors) { throw 'MSI 回滚目录仍有权限错误。' }
   $cleanupSucceeded = $true
   Write-Output 'MSI tests passed: production extraction/startup, isolated install, failed-upgrade rollback, major upgrade, downgrade rejection, uninstall and data retention.'
 } finally {
@@ -107,6 +114,6 @@ try {
     try { if ($engine.ProductState($product) -gt 0) { Run-Msi ('/x ' + $product + ' /qn /norestart') } } catch { Write-Warning $_.Exception.Message }
   }
   [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($engine)
-  $safePrefix = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\') + '\weiguang-msi-test-'
+  $safePrefix = $testBase.TrimEnd('\') + '\weiguang-msi-test-'
   if ($cleanupSucceeded -and [IO.Path]::GetFullPath($testRoot).StartsWith($safePrefix, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
 }

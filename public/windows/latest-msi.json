@@ -1,7 +1,7 @@
 {
-    "version":  "0.2.2",
-    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.2-3e4fceabb274.msi",
-    "sha256":  "3e4fceabb274a4f62ff231b032582849d92d5f4193a86b5a3e54a18671590791",
-    "size":  4849664,
-    "notes":  "习惯进度升级为连续状态：可显示未开始、进行中百分比、已完成与超额完成，完成目标后仍可继续记录；每日和回顾汇总会计入部分进度，并将单项贡献封顶在 100%。同时保留 Windows 标准 MSI 原位升级与数据目录。"
+    "version":  "0.2.3",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.3-3bbf4875b5a8.msi",
+    "sha256":  "3bbf4875b5a8d66e151d568258be814b10d0a19cb8031f9763eedfe2df9f0317",
+    "size":  4980736,
+    "notes":  "修复 D 盘 Windows Installer 回滚目录权限异常导致连续弹出确认框的问题；后续应用内更新改为简洁进度界面，完成后自动重新打开。保留失败回滚、安装包校验和个人数据目录。"
 }

@@ -368,17 +368,22 @@ internal sealed class WeiguangWindow : Form
             downloaded = await Task.Run(() => WindowsUpdater.Download(availableUpdate, value => ((IProgress<int>)progress).Report(value), closed.Token));
             if (IsDisposed) return;
             updateStatus.Text = "下载完成，等待安装";
-            if (MessageBox.Show(this, "新版已下载并通过完整性校验。\n\n请先保存正在编辑的内容。微光将关闭并打开 Windows 安装向导；完成时勾选“打开微光”即可重新启动。个人记录会保留。\n\n现在继续吗？", "更新微光", MessageBoxButtons.YesNo) != DialogResult.Yes) { updateStatus.Text = "已暂缓更新，可稍后重新下载"; return; }
+            if (MessageBox.Show(this, "新版已下载并通过完整性校验。\n\n请先保存正在编辑的内容。微光将关闭并显示简洁的安装进度，完成后会自动重新打开；个人记录会保留。\n\n现在继续吗？", "更新微光", MessageBoxButtons.YesNo) != DialogResult.Yes) { updateStatus.Text = "已暂缓更新，可稍后重新下载"; return; }
             webView.Enabled = false;
             string safe = await webView.CoreWebView2.ExecuteScriptAsync("document.documentElement.dataset.weiguangUpdateReady === 'true' && !document.querySelector('.modal-layer')");
             if (safe != "true") throw new IOException("请先关闭编辑窗口，并确认数据已保存，再尝试更新。");
-            // Windows Installer owns replacement and rollback; no downloaded EXE helper is run.
+            string packagedHelper = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "微光更新助手.exe");
+            if (!File.Exists(packagedHelper)) throw new FileNotFoundException("更新助手缺失，请重新安装当前版本。", packagedHelper);
+            foreach (string stale in Directory.GetFiles(Path.GetTempPath(), "weiguang-update-helper-*.exe"))
+                try { if (File.GetLastWriteTimeUtc(stale) < DateTime.UtcNow.AddDays(-1)) File.Delete(stale); } catch { }
+            string helper = Path.Combine(Path.GetTempPath(), "weiguang-update-helper-" + Guid.NewGuid().ToString("N") + ".exe");
+            File.Copy(packagedHelper, helper, true);
             Process.Start(new ProcessStartInfo {
-                FileName = Path.Combine(Environment.SystemDirectory, "msiexec.exe"),
-                Arguments = "/i \"" + downloaded + "\" /norestart",
+                FileName = helper,
+                Arguments = "\"" + downloaded + "\" \"" + Application.ExecutablePath + "\" " + Process.GetCurrentProcess().Id,
                 UseShellExecute = false, WorkingDirectory = Path.GetTempPath()
             });
-            downloaded = null; // MSI needs its source until the installation UI finishes.
+            downloaded = null; // 更新助手会在安装结束后清理安装包。
             Close();
         }
         catch (Exception error) { if (!IsDisposed) { updateStatus.Text = "更新未完成，可重试"; MessageBox.Show(this, error.Message, "微光更新", MessageBoxButtons.OK, MessageBoxIcon.Information); } }
