@@ -11,6 +11,10 @@ import {
   getWeekKeys,
   habitRevisionFor,
   habitProgress,
+  isHabitScheduled,
+  habitValueFor,
+  habitPeriodStart,
+  normalizeHabitSchedule,
   moveTaskCompletion,
   nextMilestoneCopy,
   normalizeSnapshot,
@@ -153,4 +157,49 @@ test('备份入口拒绝不完整结构并统一到 v4', () => {
   assert.equal(parsed?.version, 4);
   assert.equal(stamp(parsed!).version, 4);
   assert.notEqual(stamp(parsed!).updatedAt, parsed!.updatedAt);
+});
+
+function scheduledHabit(frequency: Habit['frequency']): Habit {
+  return upsertHabitRevision({ id: 99, title: '打扫', icon: '扫', target: 1, step: 1, unit: '次', color: 'blue', days: [1], paused: false, reminder: '', frequency, intervalDays: 2, startDate: '2026-09-03', revisions: [] }, '2026-09-03');
+}
+test('隔天习惯从开始日期计算，跨周跨月仍保持间隔，创建前不安排', () => {
+  const habit = scheduledHabit('interval');
+  assert.equal(isHabitScheduled(habit, '2026-09-02'), false);
+  assert.equal(isHabitScheduled(habit, '2026-09-03'), true);
+  assert.equal(isHabitScheduled(habit, '2026-09-04'), false);
+  assert.equal(isHabitScheduled(habit, '2026-09-05'), true);
+  assert.equal(isHabitScheduled(habit, '2026-09-07'), true);
+  assert.equal(isHabitScheduled(habit, '2026-10-01'), true);
+  assert.equal(isHabitScheduled(habit, '2026-10-02'), false);
+});
+test('每周目标跨日累计、周一重置，历史进度不包含之后的记录', () => {
+  const habit = scheduledHabit('weekly');
+  const records = { '2026-09-02': { taskDone: [], habits: { '99': 8 } }, '2026-09-04': { taskDone: [], habits: { '99': 1 } }, '2026-09-06': { taskDone: [], habits: { '99': 1 } } };
+  assert.equal(habitValueFor(habit, '2026-09-03', records), 0);
+  assert.equal(habitValueFor(habit, '2026-09-05', records), 1);
+  assert.equal(habitValueFor(habit, '2026-09-06', records), 2);
+  assert.equal(habitValueFor(habit, '2026-09-07', records), 0);
+  assert.equal(habitPeriodStart(habit, '2026-09-06'), '2026-09-03');
+  assert.equal(habitPeriodStart(habit, '2026-09-07'), '2026-09-07');
+  assert.equal(isHabitScheduled(habit, '2026-09-05'), true);
+});
+test('修改周期保留历史、间隔起点，备份恢复后保持周期', () => {
+  const habit = scheduledHabit('interval');
+  const changed = upsertHabitRevision({ ...habit, frequency: 'weekly' }, '2026-09-07');
+  assert.equal(isHabitScheduled(changed, '2026-09-06'), false);
+  assert.equal(isHabitScheduled(changed, '2026-09-08'), true);
+  const snapshot = normalizeSnapshot({ version: 4, habits: [changed], tasks: [], plans: [], records: {}, updatedAt: '' }, '2026-09-08');
+  assert.equal(snapshot.habits[0].frequency, 'weekly');
+  assert.equal(habitRevisionFor(snapshot.habits[0], '2026-09-05').frequency, 'interval');
+  assert.equal(habitRevisionFor(snapshot.habits[0], '2026-09-05').startDate, '2026-09-03');
+  assert.equal(normalizeHabitSchedule({ intervalDays: -1 }).intervalDays, 2);
+  assert.equal(normalizeHabitSchedule({}).frequency, 'weekdays');
+  assert.equal(isHabitScheduled(upsertHabitRevision({ ...habit, paused: true }, '2026-09-05'), '2026-09-05'), false);
+});
+
+test('只改名称或提醒不会重置本周累计，也不会移动隔天起点', () => {
+  const habit = scheduledHabit('weekly');
+  const renamed = upsertHabitRevision({ ...habit, title: '收拾房间', reminder: '10:00' }, '2026-09-06');
+  assert.deepEqual(renamed.revisions, habit.revisions);
+  assert.equal(habitValueFor(renamed, '2026-09-06', { '2026-09-04': { taskDone: [], habits: { '99': 1 } } }), 1);
 });

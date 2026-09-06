@@ -1,7 +1,8 @@
 export type Milestone = { id: number; title: string; done: boolean };
 export type Task = { id: number; title: string; time: string; note: string; tag: string; date: string; planId?: number };
-export type HabitRevision = { effectiveFrom: string; target: number; step: number; unit: string; days: number[]; paused: boolean };
-export type Habit = { id: number; icon: string; title: string; target: number; step: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string; revisions: HabitRevision[] };
+export type HabitSchedule = { frequency?: 'daily' | 'weekly' | 'interval' | 'weekdays'; intervalDays?: number; startDate?: string };
+export type HabitRevision = HabitSchedule & { effectiveFrom: string; target: number; step: number; unit: string; days: number[]; paused: boolean };
+export type Habit = HabitSchedule & { id: number; icon: string; title: string; target: number; step: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string; revisions: HabitRevision[] };
 export type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[]; deadline: string; archived: boolean };
 export type DailyRecord = { taskDone: number[]; habits: Record<string, number> };
 export type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
@@ -63,11 +64,13 @@ export function habitProgress(value: number, target: number): HabitProgress {
   return { percent, cappedPercent: 100, status: 'exceeded', label: `超额完成 ${percent}%` };
 }
 export function habitRevisionFor(habit: Habit, dateKey: string): HabitRevision {
-  const fallback = { effectiveFrom: '0001-01-01', target: habit.target, step: habit.step, unit: habit.unit, days: habit.days, paused: habit.paused };
+  const fallback = { ...normalizeHabitSchedule(habit), effectiveFrom: '0001-01-01', target: habit.target, step: habit.step, unit: habit.unit, days: habit.days, paused: habit.paused };
   return habit.revisions.filter((revision) => revision.effectiveFrom <= dateKey).at(-1) || habit.revisions[0] || fallback;
 }
 export function upsertHabitRevision(habit: Habit, effectiveFrom: string): Habit {
-  const revision: HabitRevision = { effectiveFrom, target: habit.target, step: habit.step, unit: habit.unit, days: [...habit.days], paused: habit.paused };
+  const revision: HabitRevision = { ...normalizeHabitSchedule(habit), effectiveFrom, target: habit.target, step: habit.step, unit: habit.unit, days: [...habit.days], paused: habit.paused };
+  const previous = habit.revisions.filter((item) => item.effectiveFrom <= effectiveFrom).at(-1);
+  if (previous && previous.target === revision.target && previous.step === revision.step && previous.unit === revision.unit && previous.paused === revision.paused && [...previous.days].sort().join() === [...revision.days].sort().join() && JSON.stringify(normalizeHabitSchedule(previous)) === JSON.stringify(normalizeHabitSchedule(revision))) return habit;
   const revisions = [...habit.revisions.filter((item) => item.effectiveFrom !== effectiveFrom), revision].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
   return { ...habit, revisions };
 }
@@ -101,9 +104,9 @@ export function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnap
       const revisions = rawRevisions.map((revision) => {
         const revisionTarget = Number.isFinite(revision.target) && revision.target > 0 ? revision.target : target;
         const revisionUnit = typeof revision.unit === 'string' && revision.unit.trim() ? revision.unit.trim() : unit;
-        return { effectiveFrom: typeof revision.effectiveFrom === 'string' && revision.effectiveFrom ? revision.effectiveFrom : '0001-01-01', target: revisionTarget, step: sanitizeHabitStep(revision.step, revisionTarget, revisionUnit), unit: revisionUnit, days: Array.isArray(revision.days) && revision.days.length ? revision.days : days, paused: Boolean(revision.paused) };
+        return { ...normalizeHabitSchedule(revision), effectiveFrom: typeof revision.effectiveFrom === 'string' && revision.effectiveFrom ? revision.effectiveFrom : '0001-01-01', target: revisionTarget, step: sanitizeHabitStep(revision.step, revisionTarget, revisionUnit), unit: revisionUnit, days: Array.isArray(revision.days) && revision.days.length ? revision.days : days, paused: Boolean(revision.paused) };
       }).sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
-      return { ...habit, target, step, unit, days, paused, reminder: typeof habit.reminder === 'string' ? habit.reminder : '', revisions };
+      return { ...habit, ...normalizeHabitSchedule(habit), target, step, unit, days, paused, reminder: typeof habit.reminder === 'string' ? habit.reminder : '', revisions };
     }),
     plans: snapshot.plans.map((plan) => { const milestones = Array.isArray(plan.milestones) ? plan.milestones : []; return { ...plan, milestones, next: nextMilestoneCopy(milestones), deadline: typeof plan.deadline === 'string' ? plan.deadline : '', archived: Boolean(plan.archived) }; }),
     records,
@@ -139,4 +142,37 @@ export function deletePlanFromSnapshot(snapshot: AppSnapshot, planIdToDelete: nu
       return planId === planIdToDelete ? unlinkedTask : task;
     }),
   };
+}
+
+export function normalizeHabitSchedule(value: HabitSchedule): Required<HabitSchedule> {
+  return { frequency: ['daily', 'weekly', 'interval', 'weekdays'].includes(value.frequency || '') ? value.frequency! : 'weekdays', intervalDays: Number.isInteger(value.intervalDays) && value.intervalDays! >= 2 && value.intervalDays! <= 365 ? value.intervalDays! : 2, startDate: typeof value.startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.startDate) ? value.startDate : '0001-01-01' };
+}
+export function isHabitScheduled(habit: Habit, key: string) {
+  const state = habitRevisionFor(habit, key);
+  if (state.paused || key < state.effectiveFrom) return false;
+  const schedule = normalizeHabitSchedule(state);
+  if (key < schedule.startDate) return false;
+  if (schedule.frequency === 'interval') {
+    const serial = (date: string) => { const d = fromDateKey(date); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000; };
+    return (serial(key) - serial(schedule.startDate)) % schedule.intervalDays === 0;
+  }
+  return schedule.frequency !== 'weekdays' || state.days.includes(fromDateKey(key).getDay());
+}
+export function habitPeriodStart(habit: Habit, key: string) {
+  const state = habitRevisionFor(habit, key);
+  if (state.frequency !== 'weekly') return key;
+  return [shiftDate(key, -((fromDateKey(key).getDay() + 6) % 7)), state.effectiveFrom, state.startDate || '0001-01-01'].sort().at(-1)!;
+}
+export function habitValueFor(habit: Habit, key: string, records: Record<string, DailyRecord>) {
+  const start = habitPeriodStart(habit, key);
+  let value = 0;
+  for (let date = start; date <= key; date = shiftDate(date, 1)) value += records[date]?.habits[String(habit.id)] || 0;
+  return Math.round(value * 10000) / 10000;
+}
+export function habitScheduleCopy(habit: HabitSchedule & { days: number[] }) {
+  const schedule = normalizeHabitSchedule(habit);
+  if (schedule.frequency === 'weekly') return '每周累计';
+  if (schedule.frequency === 'interval') return schedule.intervalDays === 2 ? '隔天一次' : `每 ${schedule.intervalDays} 天`;
+  if (schedule.frequency === 'daily' || habit.days.length === 7) return '每天';
+  return `每周${habit.days.map((day) => '日一二三四五六'[day]).join('、')}`;
 }
