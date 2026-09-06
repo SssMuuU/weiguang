@@ -1,7 +1,7 @@
 {
-    "version":  "0.2.4",
-    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.4-c30bf3ff4553.msi",
-    "sha256":  "c30bf3ff4553788255cb89c14f23a1d5e33c49df8711229cc524437d6f8adb91",
+    "version":  "0.2.5",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.5-09a6a2a1f85e.msi",
+    "sha256":  "09a6a2a1f85e0568f4ee6297fce02e97364b1936f217fbaa574bdff7e12835f4",
     "size":  4980736,
-    "notes":  "避免 D 盘 Windows Installer 回滚目录权限异常导致连续弹出确认框：应用内更新和手动运行 MSI 都只显示单一安装进度，应用内更新完成后会自动重新打开。保留失败回滚、安装包校验和个人数据目录。"
+    "notes":  "同步网页版习惯周期功能：支持每周累计、每隔几天（填 2 为隔天执行）、每天及指定星期；新建与编辑均可选择。每周累计周一重置，保留历史周期与记录。继续保留安装包校验、失败回滚及个人数据目录。"
 }

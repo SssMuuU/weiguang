@@ -5,7 +5,7 @@ using System.Reflection;
 
 internal static class WindowsRelease
 {
-    internal const string Version = "0.2.4";
+    internal const string Version = "0.2.5";
     internal const string AssemblyVersion = Version + ".0";
     internal const string Origin = "https://weiguang-plan-habits.workspace-192140.chatgpt.site";
     internal const string Feed = Origin + "/windows/latest-msi.json";
