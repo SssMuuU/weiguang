@@ -1,0 +1,47 @@
+name: 微光自动检查
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: 测试与构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: true
+      WRANGLER_SEND_METRICS: 'false'
+      WRANGLER_WRITE_LOGS: 'false'
+    steps:
+      - name: 获取源码
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: 设置 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - name: 按锁文件安装依赖
+        run: npm ci
+      - name: 单元测试
+        run: npm test
+      - name: 代码规范
+        run: npm run lint
+      - name: 构建网站
+        run: npm run build
+      - name: 类型检查
+        run: npx --no-install tsc --noEmit
+      - name: 构建移动端共享界面
+        run: npm run mobile:build
