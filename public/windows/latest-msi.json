@@ -1,7 +1,7 @@
 {
-    "version":  "0.2.5",
-    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.5-09a6a2a1f85e.msi",
-    "sha256":  "09a6a2a1f85e0568f4ee6297fce02e97364b1936f217fbaa574bdff7e12835f4",
-    "size":  4980736,
-    "notes":  "同步网页版习惯周期功能：支持每周累计、每隔几天（填 2 为隔天执行）、每天及指定星期；新建与编辑均可选择。每周累计周一重置，保留历史周期与记录。继续保留安装包校验、失败回滚及个人数据目录。"
+    "version":  "0.2.6",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.6-733f6f6f5cac.msi",
+    "sha256":  "733f6f6f5cac9eb35be63ed8610f021bdbc007b5af93f1e9ee07236bd18698ff",
+    "size":  4984832,
+    "notes":  "修复应用跨夜打开后日期停留在昨天的问题：午夜自动切换今天，切回窗口或休眠恢复时重新校准日期和问候语；浏览历史日期时保留选择，历史记录不变。每周累计在周一按新日期计算，与网页版同步。"
 }

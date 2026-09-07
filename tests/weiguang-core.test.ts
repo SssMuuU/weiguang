@@ -24,6 +24,8 @@ import {
   shiftDate,
   stamp,
   timeGreeting,
+  dateAfterClockChange,
+  nextClockCheckDelay,
   upsertHabitRevision,
   type AppSnapshot,
   type Habit,
@@ -202,4 +204,21 @@ test('只改名称或提醒不会重置本周累计，也不会移动隔天起�
   const renamed = upsertHabitRevision({ ...habit, title: '收拾房间', reminder: '10:00' }, '2026-09-06');
   assert.deepEqual(renamed.revisions, habit.revisions);
   assert.equal(habitValueFor(renamed, '2026-09-06', { '2026-09-04': { taskDone: [], habits: { '99': 1 } } }), 1);
+});
+
+test('跨日、休眠数日及系统日期回拨时跟随今天，历史日期保持原选择', () => {
+  assert.equal(dateAfterClockChange('2026-09-06', '2026-09-06', '2026-09-07'), '2026-09-07');
+  assert.equal(dateAfterClockChange('2026-09-06', '2026-09-06', '2026-09-10'), '2026-09-10');
+  assert.equal(dateAfterClockChange('2026-09-06', '2026-09-05', '2026-09-07'), '2026-09-05');
+  assert.equal(dateAfterClockChange('2026-09-07', '2026-09-07', '2026-09-06'), '2026-09-06');
+  const weekly = scheduledHabit('weekly');
+  const records = { '2026-09-06': { taskDone: [], habits: { '99': 1 } } };
+  const today = dateAfterClockChange('2026-09-06', '2026-09-06', '2026-09-07');
+  assert.equal(habitValueFor(weekly, today, records), 0);
+  assert.equal(habitValueFor(weekly, '2026-09-06', records), 1);
+});
+test('午夜立即检查，平时最多一分钟检查一次，跨年同样生效', () => {
+  assert.equal(nextClockCheckDelay(new Date(2026, 8, 6, 23, 59, 59, 750)), 250);
+  assert.equal(nextClockCheckDelay(new Date(2026, 11, 31, 23, 59, 59)), 1000);
+  assert.equal(nextClockCheckDelay(new Date(2026, 8, 7, 12)), 60000);
 });

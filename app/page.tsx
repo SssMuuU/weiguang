@@ -42,6 +42,8 @@ import {
   shortWeekday,
   stamp,
   timeGreeting,
+  dateAfterClockChange,
+  nextClockCheckDelay,
   toDateKey,
   upsertHabitRevision,
   type AppSnapshot,
@@ -259,20 +261,34 @@ export default function Home() {
   }, [isNative]);
 
   useEffect(() => {
-    if (!isNative) return;
-    const listener = App.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) return;
+    if (!ready) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refreshClock = () => {
+      if (disposed) return;
       const now = new Date();
       const nextToday = toDateKey(now);
       setGreeting(timeGreeting(now.getHours()));
-      setTodayKey((currentToday) => {
-        if (currentToday === nextToday) return currentToday;
-        setSelectedDate((currentSelected) => currentSelected === currentToday ? nextToday : currentSelected);
-        return nextToday;
-      });
-    });
-    return () => { void listener.then((handle) => handle.remove()); };
-  }, [isNative]);
+      setSelectedDate((selected) => dateAfterClockChange(todayKey, selected, nextToday));
+      setTodayKey(nextToday);
+      clearTimeout(timer);
+      timer = setTimeout(refreshClock, nextClockCheckDelay(now));
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshClock(); };
+    refreshClock();
+    window.addEventListener('focus', refreshClock);
+    window.addEventListener('pageshow', refreshClock);
+    document.addEventListener('visibilitychange', onVisible);
+    const listener = isNative ? App.addListener('appStateChange', ({ isActive }) => { if (isActive) refreshClock(); }) : null;
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      window.removeEventListener('focus', refreshClock);
+      window.removeEventListener('pageshow', refreshClock);
+      document.removeEventListener('visibilitychange', onVisible);
+      void listener?.then((handle) => handle.remove());
+    };
+  }, [ready, todayKey, isNative]);
 
   useEffect(() => {
     if (!ready || welcome) return;

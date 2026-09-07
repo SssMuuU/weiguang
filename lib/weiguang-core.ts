@@ -176,3 +176,12 @@ export function habitScheduleCopy(habit: HabitSchedule & { days: number[] }) {
   if (schedule.frequency === 'daily' || habit.days.length === 7) return '每天';
   return `每周${habit.days.map((day) => '日一二三四五六'[day]).join('、')}`;
 }
+
+// Follow the clock only when viewing today; keep an explicitly selected history date.
+export function dateAfterClockChange(previousToday: string, selected: string, nextToday: string) {
+  return selected === previousToday ? nextToday : selected;
+}
+export function nextClockCheckDelay(now: Date) {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return Math.max(1, Math.min(60000, midnight.getTime() - now.getTime()));
+}
