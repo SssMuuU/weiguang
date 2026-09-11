@@ -91,7 +91,7 @@ export function planDeadlineCopy(deadline: string, today: string) { if (!deadlin
 export function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnapshot {
   const records: Record<string, DailyRecord> = {};
   Object.entries(snapshot.records || {}).forEach(([key, record]) => { records[key === 'today' ? today : key] = { taskDone: Array.isArray(record?.taskDone) ? record.taskDone : [], habits: record?.habits && typeof record.habits === 'object' ? record.habits : {} }; });
-  return {
+  return carryOverTasks({
     version: 4,
     tasks: snapshot.tasks.map((task) => ({ id: task.id, title: task.title, time: task.time, note: typeof task.note === 'string' ? task.note : '', tag: task.tag, date: task.date === 'today' || !task.date ? today : task.date, ...(typeof task.planId === 'number' ? { planId: task.planId } : {}) })),
     habits: snapshot.habits.map((habit) => {
@@ -111,7 +111,7 @@ export function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnap
     plans: snapshot.plans.map((plan) => { const milestones = Array.isArray(plan.milestones) ? plan.milestones : []; return { ...plan, milestones, next: nextMilestoneCopy(milestones), deadline: typeof plan.deadline === 'string' ? plan.deadline : '', archived: Boolean(plan.archived) }; }),
     records,
     updatedAt: snapshot.updatedAt || new Date(0).toISOString(),
-  };
+  }, today);
 }
 
 export function parseSnapshot(value: unknown): AppSnapshot | null {
@@ -157,6 +157,32 @@ export function isHabitScheduled(habit: Habit, key: string) {
     return (serial(key) - serial(schedule.startDate)) % schedule.intervalDays === 0;
   }
   return schedule.frequency !== 'weekdays' || state.days.includes(fromDateKey(key).getDay());
+}
+export function countsTowardDailyProgress(habit: Habit, key: string) {
+  return isHabitScheduled(habit, key) && habitRevisionFor(habit, key).frequency !== 'weekly';
+}
+
+export function carryOverTasks(snapshot: AppSnapshot, today: string): AppSnapshot {
+  let changed = false;
+  const tasks = snapshot.tasks.map((task) => {
+    if (task.date >= today || snapshot.records[task.date]?.taskDone.includes(task.id)) return task;
+    changed = true;
+    return { ...task, date: today };
+  });
+  return changed ? { ...snapshot, tasks } : snapshot;
+}
+
+export function postponeTask(snapshot: AppSnapshot, taskId: number): AppSnapshot {
+  const task = snapshot.tasks.find((item) => item.id === taskId);
+  if (!task || snapshot.records[task.date]?.taskDone.includes(taskId)) return snapshot;
+  const date = shiftDate(task.date, 1);
+  return { ...snapshot, tasks: snapshot.tasks.map((item) => item.id === taskId ? { ...item, date } : item) };
+}
+export function renameMilestone(plan: Plan, milestoneId: number, title: string): Plan {
+  const cleanTitle = title.trim();
+  if (!cleanTitle || !plan.milestones.some((item) => item.id === milestoneId)) return plan;
+  const milestones = plan.milestones.map((item) => item.id === milestoneId ? { ...item, title: cleanTitle } : item);
+  return { ...plan, milestones, next: nextMilestoneCopy(milestones) };
 }
 export function habitPeriodStart(habit: Habit, key: string) {
   const state = habitRevisionFor(habit, key);

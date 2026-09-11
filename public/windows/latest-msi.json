@@ -1,7 +1,7 @@
 {
-    "version":  "0.2.6",
-    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.6-733f6f6f5cac.msi",
-    "sha256":  "733f6f6f5cac9eb35be63ed8610f021bdbc007b5af93f1e9ee07236bd18698ff",
+    "version":  "0.2.8",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.8-a09ba9529765.msi",
+    "sha256":  "a09ba952976514f1772b8c88903da5c9a192c5a0d17ce194f58ba2debee1b220",
     "size":  4984832,
-    "notes":  "修复应用跨夜打开后日期停留在昨天的问题：午夜自动切换今天，切回窗口或休眠恢复时重新校准日期和问候语；浏览历史日期时保留选择，历史记录不变。每周累计在周一按新日期计算，与网页版同步。"
+    "notes":  "修复今日进度：每周累计习惯不再计入每日进度，避免未完成时拉低每天进度、完成后连续多天自动加分；每日复盘采用相同规则。计划里程碑支持编辑名称、保存和取消，保留完成状态，并同步更新下一步。网页版与 Windows 版同步。 新增待办顺延：未完成的过期待办在跨日、恢复应用或重新打开时自动移到今天；今日未完成待办可点击“移到明天”主动顺延，保留备注、时间和关联计划，已完成待办保留原日期。"
 }

@@ -12,10 +12,14 @@ import {
   habitRevisionFor,
   habitProgress,
   isHabitScheduled,
+  countsTowardDailyProgress,
+  renameMilestone,
   habitValueFor,
   habitPeriodStart,
   normalizeHabitSchedule,
   moveTaskCompletion,
+  carryOverTasks,
+  postponeTask,
   nextMilestoneCopy,
   normalizeSnapshot,
   parseSnapshot,
@@ -221,4 +225,65 @@ test('午夜立即检查，平时最多一分钟检查一次，跨年同样生�
   assert.equal(nextClockCheckDelay(new Date(2026, 8, 6, 23, 59, 59, 750)), 250);
   assert.equal(nextClockCheckDelay(new Date(2026, 11, 31, 23, 59, 59)), 1000);
   assert.equal(nextClockCheckDelay(new Date(2026, 8, 7, 12)), 60000);
+});
+
+
+test('每周累计不进入任何一天的每日进度，指定星期与隔天仍按执行日计入', () => {
+  const habit = { id: 99, title: '整理', target: 1, unit: '次', step: 1, days: [1], frequency: 'weekly', startDate: '2026-09-01', paused: false, revisions: [] } as unknown as Habit;
+  for (const key of ['2026-09-07', '2026-09-08', '2026-09-13', '2026-09-14']) {
+    assert.equal(countsTowardDailyProgress(habit, key), false);
+    assert.equal(isHabitScheduled(habit, key), true);
+  }
+  assert.equal(countsTowardDailyProgress({ ...habit, frequency: 'daily' }, '2026-09-08'), true);
+  assert.equal(countsTowardDailyProgress({ ...habit, frequency: 'weekdays' }, '2026-09-07'), true);
+  assert.equal(countsTowardDailyProgress({ ...habit, frequency: 'weekdays' }, '2026-09-08'), false);
+  assert.equal(countsTowardDailyProgress({ ...habit, frequency: 'interval', intervalDays: 2 }, '2026-09-09'), true);
+  assert.equal(countsTowardDailyProgress({ ...habit, frequency: 'interval', intervalDays: 2 }, '2026-09-10'), false);
+});
+
+test('编辑里程碑保留完成状态和计划进度，并更新下一步；空名称不保存', () => {
+  const plan = { id: 1, progress: 50, milestones: [{ id: 1, title: '完成阶段', done: true }, { id: 2, title: '旧目标', done: false }] } as Plan;
+  const edited = renameMilestone(plan, 2, '  新目标  ');
+  assert.equal(edited.next, '下一步：新目标');
+  assert.equal(edited.progress, 50);
+  assert.deepEqual(edited.milestones[1], { id: 2, title: '新目标', done: false });
+  assert.equal(renameMilestone(plan, 1, '已完成的新名称').milestones[0].done, true);
+  assert.equal(renameMilestone(plan, 2, '  '), plan);
+  assert.equal(renameMilestone(plan, 999, '名称'), plan);
+  assert.equal(plan.milestones[1].title, '旧目标');
+});
+
+
+test('跨日顺延未完成待办，保留已完成与未来待办，多日后打开也只保留一份', () => {
+  const snapshot = { version: 4, habits: [], plans: [], updatedAt: '', tasks: [
+    { id: 1, title: '未完成', date: '2026-12-31', time: '09:00', note: '带资料', tag: '工作', planId: 8 },
+    { id: 2, title: '已完成', date: '2026-12-31', time: '', note: '', tag: '' },
+    { id: 3, title: '未来', date: '2027-01-10', time: '', note: '', tag: '' },
+  ], records: { '2026-12-31': { taskDone: [2], habits: { '9': 2 } } } } as AppSnapshot;
+  const next = carryOverTasks(snapshot, '2027-01-01');
+  assert.deepEqual(next.tasks[0], { ...snapshot.tasks[0], date: '2027-01-01' });
+  assert.equal(next.tasks[1], snapshot.tasks[1]);
+  assert.equal(next.tasks[2], snapshot.tasks[2]);
+  assert.equal(next.records, snapshot.records);
+  assert.equal(carryOverTasks(next, '2027-01-01'), next);
+  const later = carryOverTasks(next, '2027-01-05');
+  assert.equal(later.tasks.length, 3);
+  assert.equal(later.tasks[0].date, '2027-01-05');
+  assert.equal(carryOverTasks(later, '2027-01-04'), later);
+  const completed = { ...later, records: { ...later.records, '2027-01-05': { taskDone: [1], habits: {} } } };
+  assert.equal(carryOverTasks(completed, '2027-01-06'), completed);
+  assert.equal(normalizeSnapshot(snapshot, '2027-01-05').tasks[0].date, '2027-01-05');
+  assert.equal(snapshot.tasks[0].date, '2026-12-31');
+});
+
+test('主动顺延到次日，跨月及闰日正确，次日到来不会再次推迟', () => {
+  const snapshot = { version: 4, habits: [], plans: [], updatedAt: '', tasks: [{ id: 1, title: '待办', date: '2028-02-28', time: '08:00', note: '备注', tag: '生活', planId: 3 }], records: {} } as AppSnapshot;
+  const moved = postponeTask(snapshot, 1);
+  assert.deepEqual(moved.tasks[0], { ...snapshot.tasks[0], date: '2028-02-29' });
+  assert.equal(carryOverTasks(moved, '2028-02-29'), moved);
+  assert.equal(postponeTask(moved, 1).tasks[0].date, '2028-03-01');
+  assert.equal(moved.records, snapshot.records);
+  assert.equal(postponeTask(snapshot, 99), snapshot);
+  const done = { ...snapshot, records: { '2028-02-28': { taskDone: [1], habits: {} } } };
+  assert.equal(postponeTask(done, 1), done);
 });
