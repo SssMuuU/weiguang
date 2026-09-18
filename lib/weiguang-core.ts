@@ -5,7 +5,8 @@ export type HabitRevision = HabitSchedule & { effectiveFrom: string; target: num
 export type Habit = HabitSchedule & { id: number; icon: string; title: string; target: number; step: number; unit: string; color: string; days: number[]; paused: boolean; reminder: string; revisions: HabitRevision[] };
 export type Plan = { id: number; title: string; detail: string; progress: number; color: string; next: string; milestones: Milestone[]; deadline: string; archived: boolean };
 export type DailyRecord = { taskDone: number[]; habits: Record<string, number> };
-export type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; records: Record<string, DailyRecord>; updatedAt: string };
+export type Memo = { id: string; title: string; content: string; createdAt: string; updatedAt: string };
+export type AppSnapshot = { version: 4; tasks: Task[]; habits: Habit[]; plans: Plan[]; memos?: Memo[]; records: Record<string, DailyRecord>; updatedAt: string };
 export type LocalReadResult = { snapshot: AppSnapshot; firstRun: boolean };
 export type CompanionMood = 'sleepy' | 'waiting' | 'curious' | 'bright' | 'celebrate';
 export type CompanionState = { mood: CompanionMood; message: string };
@@ -93,6 +94,7 @@ export function normalizeSnapshot(snapshot: AppSnapshot, today: string): AppSnap
   Object.entries(snapshot.records || {}).forEach(([key, record]) => { records[key === 'today' ? today : key] = { taskDone: Array.isArray(record?.taskDone) ? record.taskDone : [], habits: record?.habits && typeof record.habits === 'object' ? record.habits : {} }; });
   return carryOverTasks({
     version: 4,
+    memos: snapshot.memos ?? [],
     tasks: snapshot.tasks.map((task) => ({ id: task.id, title: task.title, time: task.time, note: typeof task.note === 'string' ? task.note : '', tag: task.tag, date: task.date === 'today' || !task.date ? today : task.date, ...(typeof task.planId === 'number' ? { planId: task.planId } : {}) })),
     habits: snapshot.habits.map((habit) => {
       const target = Number.isFinite(habit.target) && habit.target > 0 ? habit.target : 1;
@@ -118,7 +120,8 @@ export function parseSnapshot(value: unknown): AppSnapshot | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Partial<AppSnapshot>;
   if (!Array.isArray(item.tasks) || !Array.isArray(item.habits) || !Array.isArray(item.plans) || !item.records || typeof item.records !== 'object' || Array.isArray(item.records)) return null;
-  return { version: 4, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
+  if (item.memos !== undefined && (!Array.isArray(item.memos) || item.memos.some((memo) => !memo || typeof memo.id !== 'string' || !memo.id || typeof memo.title !== 'string' || typeof memo.content !== 'string' || typeof memo.createdAt !== 'string' || !Number.isFinite(Date.parse(memo.createdAt)) || typeof memo.updatedAt !== 'string' || !Number.isFinite(Date.parse(memo.updatedAt))) || new Set(item.memos.map((memo) => memo.id)).size !== item.memos.length)) return null;
+  return { version: 4, tasks: item.tasks as Task[], habits: item.habits as Habit[], plans: item.plans as Plan[], memos: item.memos ?? [], records: item.records as Record<string, DailyRecord>, updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : new Date(0).toISOString() };
 }
 
 export function moveTaskCompletion(records: Record<string, DailyRecord>, taskId: number, from: string, to: string) {

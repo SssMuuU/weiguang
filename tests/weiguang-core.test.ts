@@ -1,5 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+
+test('备忘录兼容旧备份，并完整保留多行正文和时间', () => {
+  const old = { version: 4, tasks: [], habits: [], plans: [], records: {}, updatedAt: '2026-09-18T00:00:00.000Z' };
+  assert.deepEqual(normalizeSnapshot(parseSnapshot(old)!, '2026-09-18').memos, []);
+  const memos = [{ id: 'memo-1', title: '灵感', content: '第一行\n第二行 <div> 原样保留', createdAt: old.updatedAt, updatedAt: old.updatedAt }];
+  const restored = normalizeSnapshot(parseSnapshot(JSON.parse(JSON.stringify({ ...old, memos })))!, '2026-09-18');
+  assert.deepEqual(restored.memos, memos);
+  assert.deepEqual(parseSnapshot(JSON.parse(JSON.stringify(stamp(restored))))!.memos, memos);
+  for (const invalid of [null, {}, [null], [{ ...memos[0], content: 2 }], [{ ...memos[0], updatedAt: 'bad' }], [memos[0], memos[0]]]) {
+    assert.equal(parseSnapshot({ ...old, memos: invalid }), null);
+  }
+});
 import {
   changeHabitValue,
   deletePlanFromSnapshot,
