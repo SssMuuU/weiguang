@@ -1,7 +1,7 @@
 {
-    "version":  "0.2.10",
-    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.10-7c67325f2a36.msi",
-    "sha256":  "7c67325f2a360eb79b5866682593d69fbd414090dfd73c8c5512922f8cefa604",
+    "version":  "0.2.11",
+    "url":  "https://weiguang-plan-habits.workspace-192140.chatgpt.site/windows/weiguang-0.2.11-0f89066d728d.msi",
+    "sha256":  "0f89066d728df5cac70db2b824db4b49a86768000f84ced5e6dba1fe90c17e99",
     "size":  4984832,
-    "notes":  "整体界面优化：统一导航图标、紫色主题、卡片与弹窗样式，提高文字可读性和操作区辨识度；优化今天、计划、习惯、回顾与备忘录布局，改善窄窗口与手机适配。网页与 Windows 版共用界面，原有本机数据与备份方式保持不变。"
+    "notes":  "修复习惯周记录中超额百分比显示不全：日期列统一对齐并根据数值扩展，超额状态使用更清晰的橙色底与深色文字；悬停可查看日期、实际记录量、目标及完整完成率。网页版与 Windows 版同步更新。"
 }

@@ -165,10 +165,11 @@ h2 { font-size: 20px; line-height: 1.5; letter-spacing: -.025em; }
 .plan-percent b { font-size: 30px; font-variant-numeric: tabular-nums; }
 .plan-card>button, .archive-filter { font-size: 14px; min-height: 38px; }
 .plan-deadline { font-size: 12px; }
-.habit-board { overflow-x: auto; padding: 5px 18px; }
-.habit-week-head, .habit-board-row { grid-template-columns: minmax(150px,1fr) repeat(7,32px) 76px; gap: 5px; }
+.habit-board { display: grid; grid-template-columns: minmax(180px,1fr) repeat(7,minmax(52px,max-content)) minmax(76px,max-content); column-gap: 8px; overflow-x: auto; padding: 5px 18px; }
+.habit-week-head, .habit-board-row { grid-column: 1 / -1; grid-template-columns: subgrid; column-gap: 8px; }
 .habit-board-row { min-height: 92px; }
-.habit-board-row>i { width: 30px; height: 30px; font-size: 12px; }
+.habit-board-row>i { width: 100%; min-width: 44px; height: 34px; padding: 0 6px; white-space: nowrap; font-size: 12px; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.habit-board-row>i.exceeded { color: #8a3617; background: #ffe4d2; border: 1px solid #efbc99; }
 .habit-board-row>.habit-name-button { justify-self: stretch; padding: 8px 0; background: transparent; color: var(--ink); }
 .habit-board-row>button { font-size: 12px; line-height: 1.6; }
 .gentle-note { border-radius: 15px; }
@@ -270,6 +271,7 @@ h2 { font-size: 20px; line-height: 1.5; letter-spacing: -.025em; }
   .plan-card { min-height: 240px; }
   .plan-head-actions { flex-wrap: wrap; gap: 8px; }
   .habit-week-head { display: none; }
+  .habit-board { display: block; }
   .habit-board-row { grid-template-columns: minmax(0,1fr) auto; }
   .habit-board-row>i { display: none; }
   .habit-board-row>.habit-name-button { padding-right: 10px; }
